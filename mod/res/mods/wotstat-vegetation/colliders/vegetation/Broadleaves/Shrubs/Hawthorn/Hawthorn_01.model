@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<root>
-	<nodelessVisual>mods/wotstat-vegetation/colliders/vegetation/Broadleaves/Shrubs/Hawthorn/Hawthorn_01</nodelessVisual>
-	<materialNames/>
-	<visibilityBox>
-		<min>-2.921659 -0.275281 -2.455303</min>
-		<max>3.263054 7.640022 3.573707</max>
-	</visibilityBox>
-</root>

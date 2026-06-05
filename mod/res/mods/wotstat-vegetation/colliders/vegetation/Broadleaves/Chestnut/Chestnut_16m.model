@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<root>
-	<nodelessVisual>mods/wotstat-vegetation/colliders/vegetation/Broadleaves/Chestnut/Chestnut_16m</nodelessVisual>
-	<materialNames/>
-	<visibilityBox>
-		<min>-6.894531 1.773438 -6.875001</min>
-		<max>6.203125 16.265625 7.371093</max>
-	</visibilityBox>
-</root>

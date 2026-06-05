@@ -19,6 +19,12 @@ class SpaceBinUnpackError(Exception):
   pass
 
 
+def _isFinite(value):
+  if hasattr(math, 'isfinite'):
+    return math.isfinite(value)
+  return value == value and value != float('inf') and value != float('-inf')
+
+
 def unpackVegetationFromSpaceBin(binary):
   sections = _parseSectionTable(binary)
   assets = _parseAssetsByKey(_sectionData(binary, sections, b'BWST'))
@@ -157,7 +163,7 @@ def _parseTerrainGrid(section):
   _checkBounds(section, 4, settingsSize, 'BWT2 terrain settings')
 
   chunkSize = _readF32(section, 4)
-  if not math.isfinite(chunkSize) or chunkSize <= 0:
+  if not _isFinite(chunkSize) or chunkSize <= 0:
     raise SpaceBinUnpackError('invalid BWT2 chunk size: ' + str(chunkSize))
 
   minX = _readI32(section, 8)
@@ -247,8 +253,8 @@ def _chunkIdForMatrix(terrainGrid, matrix):
     return None
 
   chunkSize = terrainGrid['chunkSize']
-  x = _clampInt(math.floor(matrix[3][0] / chunkSize), terrainGrid['minX'], terrainGrid['maxX'])
-  z = _clampInt(math.floor(matrix[3][2] / chunkSize), terrainGrid['minZ'], terrainGrid['maxZ'])
+  x = _clampInt(int(math.floor(matrix[3][0] / chunkSize)), terrainGrid['minX'], terrainGrid['maxX'])
+  z = _clampInt(int(math.floor(matrix[3][2] / chunkSize)), terrainGrid['minZ'], terrainGrid['maxZ'])
   return ((x + CHUNK_ID_BIAS) << 8) | (z + CHUNK_ID_BIAS)
 
 
