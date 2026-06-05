@@ -47,7 +47,7 @@
 		</geometry>
 	</renderSet>
 	<boundingBox>
-		<min>-6.660156 0.000000 -6.781250</min>
-		<max>6.246093 15.906250 7.289062</max>
+		<min>-6.894531 1.773438 -6.875001</min>
+		<max>6.203125 16.265625 7.371093</max>
 	</boundingBox>
 </root>

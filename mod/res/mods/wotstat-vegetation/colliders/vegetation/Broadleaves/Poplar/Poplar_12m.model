@@ -3,7 +3,7 @@
 	<nodelessVisual>mods/wotstat-vegetation/colliders/vegetation/Broadleaves/Poplar/Poplar_12m</nodelessVisual>
 	<materialNames/>
 	<visibilityBox>
-		<min>-1.491751 -0.416892 -1.525305</min>
-		<max>1.757652 12.414062 1.506601</max>
+		<min>-1.530273 0.609375 -1.742188</min>
+		<max>2.134766 12.476562 1.493164</max>
 	</visibilityBox>
 </root>
