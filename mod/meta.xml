@@ -1,0 +1,6 @@
+<root>
+  <id>wotstat.vegetation</id>
+  <version>{{VERSION}}</version>
+  <name>wotstat.vegetation</name>
+  <description>Vegetation utilities by WotStat</description>
+</root>

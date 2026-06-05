@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+	<nodelessVisual>mods/wotstat-vegetation/colliders/vegetation/Broadleaves/Oak_dry/Oak_dry_20m</nodelessVisual>
+	<materialNames/>
+	<visibilityBox>
+		<min>-10.179688 -0.387783 -9.048041</min>
+		<max>9.984375 19.984375 9.390625</max>
+	</visibilityBox>
+</root>

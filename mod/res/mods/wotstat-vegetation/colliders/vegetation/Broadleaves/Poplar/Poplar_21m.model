@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+	<nodelessVisual>mods/wotstat-vegetation/colliders/vegetation/Broadleaves/Poplar/Poplar_21m</nodelessVisual>
+	<materialNames/>
+	<visibilityBox>
+		<min>-2.133470 0.000000 -2.129669</min>
+		<max>2.323683 21.406250 2.549315</max>
+	</visibilityBox>
+</root>

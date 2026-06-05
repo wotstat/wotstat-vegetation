@@ -1,0 +1,30 @@
+{
+  "python.autoComplete.extraPaths": [
+    "mod/wot-src/sources/res/scripts/client",
+    "mod/wot-src/sources/res/scripts/common",
+    "mod/wot-src/sources/res/scripts/client_common",
+    "mod/modssettingsapi/sources/scripts/client",
+    "mod/wot-src/_stubs",
+    "mod/BigWorldPlaceholder",
+  ],
+  "python.analysis.extraPaths": [
+    "mod/wot-src/sources/res/scripts/client",
+    "mod/wot-src/sources/res/scripts/common",
+    "mod/wot-src/sources/res/scripts/client_common",
+    "mod/modssettingsapi/sources/scripts/client",
+    "mod/wot-src/_stubs",
+    "mod/BigWorldPlaceholder",
+  ],
+  "python.analysis.exclude": [
+    "build/**",
+    "js/**",
+    "**/node_modules",
+    "**/.*",
+    "**/__pycache__",
+  ],
+  "python.analysis.userFileIndexingLimit": 20000,
+  "cSpell.language": "en,ru",
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "always"
+  },
+}

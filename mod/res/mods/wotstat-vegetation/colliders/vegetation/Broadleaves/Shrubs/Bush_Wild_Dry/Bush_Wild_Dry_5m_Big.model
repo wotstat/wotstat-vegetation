@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+	<nodelessVisual>mods/wotstat-vegetation/colliders/vegetation/Broadleaves/Shrubs/Bush_Wild_Dry/Bush_Wild_Dry_5m_Big</nodelessVisual>
+	<materialNames/>
+	<visibilityBox>
+		<min>-2.390094 0.000000 -4.097046</min>
+		<max>5.418961 3.274755 3.023813</max>
+	</visibilityBox>
+</root>
