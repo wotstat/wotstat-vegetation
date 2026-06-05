@@ -3,6 +3,7 @@ import json
 import BigWorld
 import Math
 
+from .spaceBinUnpacker import unpackVegetationFromSpaceBin
 from adisp import adisp_process
 from shared_utils import awaitNextFrame
 from helpers.CallbackDelayer import CallbackDelayer
@@ -72,22 +73,27 @@ class WotstatVegetation(CallbackDelayer):
   def dispose(self):
     pass
 
-  def loadMap(self, mapName):
+  def loadMapFromSpaceBin(self, mapName):
     if self.vegetationDataArena == mapName: return
+    spacePath = 'spaces/' + mapName + '/space.bin'
 
-    vegetationPath = 'mods/wotstat-vegetation/maps/' + mapName + '.json'
-
-    if not ResMgr.isFile(vegetationPath):
+    if not ResMgr.isFile(spacePath):
       print('WotstatVegetation: No vegetation data for map ' + mapName)
       self.vegetationData = []
       self.vegetationDataArena = ''
       return
-    
-    section = ResMgr.openSection(vegetationPath)
-    self.vegetationData = json.loads(section.asString)
-    self.vegetationDataArena = mapName
 
-    print('[WOTSTAT-VEGETATION] loaded ' + str(len(self.vegetationData)) + ' vegetations')
+    section = ResMgr.openSection(spacePath)
+    try:
+      self.vegetationData = unpackVegetationFromSpaceBin(section.asBinary)
+      self.vegetationDataArena = mapName
+    except Exception as error:
+      print('[WOTSTAT-VEGETATION] failed to load vegetation from space.bin: ' + str(error))
+      self.vegetationData = []
+      self.vegetationDataArena = ''
+      return
+
+    print('[WOTSTAT-VEGETATION] loaded ' + str(len(self.vegetationData)) + ' vegetations from space.bin')
 
   def loadColliders(self):
     if self.collidersArena == self.vegetationDataArena: return
@@ -203,7 +209,7 @@ class WotstatVegetation(CallbackDelayer):
     if not isPlayerAvatar(): return
     
     arenaName = BigWorld.player().arena.arenaType.geometryName
-    if arenaName != self.vegetationDataArena: self.loadMap(arenaName)
+    if arenaName != self.vegetationDataArena: self.loadMapFromSpaceBin(arenaName)
     if arenaName != self.vegetationDataArena: return False
 
     return True

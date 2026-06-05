@@ -48,7 +48,6 @@ zip -dvr -0 -X $folder res -i "*.dds"
 zip -dvr -0 -X $folder res -i "*.model"
 zip -dvr -0 -X $folder res -i "*.primitives"
 zip -dvr -0 -X $folder res -i "*.visual"
-zip -dvr -0 -X $folder res -i "*.json"
 
 cd ../
 cp ./build/$folder $folder
