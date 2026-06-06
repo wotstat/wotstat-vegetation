@@ -13,11 +13,13 @@ sys.modules.setdefault('BigWorld', types.ModuleType('BigWorld'))
 sys.modules.setdefault('ResMgr', types.ModuleType('ResMgr'))
 
 from wotstatVegetation.runtimeCache import (  # noqa: E402
+  MAP_CACHE_FORMAT_VERSION,
   cachePaths,
   cacheVersion,
   colliderCacheKey,
   colliderModelPaths,
   densityVariant,
+  mapPayloadInvalidReason,
   mapCachePath,
   preferencesCacheRoot,
   readJson,
@@ -130,11 +132,13 @@ def main():
 
     mapPath = mapCachePath(tempdir, '1.2.3', '01_karelia')
     payload = {
+      'mapCacheFormatVersion': MAP_CACHE_FORMAT_VERSION,
       'arena': '01_karelia',
       'vegetation': [{
         'asset': asset,
         'chunkID': 1,
         'destrIndex': None,
+        'visibilityMask': 1,
         'matrix': [
           [1.0, 0.0, 0.0, 0.0],
           [0.0, 1.0, 0.0, 0.0],
@@ -144,8 +148,20 @@ def main():
       }]
     }
     check(validateMapPayload(payload, '01_karelia'), 'map payload validation')
+    check(mapPayloadInvalidReason(payload, '01_karelia') is None, 'map payload invalid reason')
     writeJson(mapPath, payload)
     check(validateMapPayload(readJson(mapPath), '01_karelia'), 'map cache json readback')
+    oldPayload = dict(payload)
+    del oldPayload['mapCacheFormatVersion']
+    check(not validateMapPayload(oldPayload, '01_karelia'), 'old map cache version rejected')
+    missingMaskPayload = dict(payload)
+    missingMaskPayload['vegetation'] = [dict(payload['vegetation'][0])]
+    del missingMaskPayload['vegetation'][0]['visibilityMask']
+    check(not validateMapPayload(missingMaskPayload, '01_karelia'), 'missing visibility mask rejected')
+    derivedPayload = dict(payload)
+    derivedPayload['vegetation'] = [dict(payload['vegetation'][0])]
+    derivedPayload['vegetation'][0]['modeVisibility'] = {'guessed': True}
+    check(not validateMapPayload(derivedPayload, '01_karelia'), 'derived visibility fields rejected')
     chunkID = _chunkIdForMatrix(
       {'chunkSize': 100.0, 'minX': -1, 'maxX': 1, 'minZ': -1, 'maxZ': 1},
       payload['vegetation'][0]['matrix']

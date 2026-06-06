@@ -7,6 +7,7 @@ import re
 MOD_CACHE_DIR = 'wotstat-vegetation'
 DEFAULT_CACHE_VERSION = 'runtime-v1'
 EXPORT_FORMAT_VERSION = 'wot-collider-export-v1'
+MAP_CACHE_FORMAT_VERSION = 2
 
 GREEN_TEXTURE = 'mods/wotstat-vegetation/green.dds'
 YELLOW_TEXTURE = 'mods/wotstat-vegetation/yellow.dds'
@@ -197,22 +198,44 @@ def validColliderFiles(paths):
 
 
 def validateMapPayload(payload, arenaName):
+  return mapPayloadInvalidReason(payload, arenaName) is None
+
+
+def mapPayloadInvalidReason(payload, arenaName):
   if not isinstance(payload, dict):
-    return False
+    return 'payload is not an object'
   if payload.get('arena') != arenaName:
-    return False
+    return 'arena mismatch'
+  if payload.get('mapCacheFormatVersion') != MAP_CACHE_FORMAT_VERSION:
+    return 'cache version mismatch'
   vegetation = payload.get('vegetation')
   if not isinstance(vegetation, list):
-    return False
+    return 'vegetation is not a list'
   for entry in vegetation:
     if not isinstance(entry, dict):
-      return False
+      return 'vegetation entry is not an object'
     if not entry.get('asset'):
-      return False
+      return 'vegetation entry missing asset'
+    if 'visibilityMask' not in entry:
+      return 'vegetation entry missing visibilityMask'
+    try:
+      int(entry.get('visibilityMask'))
+    except Exception:
+      return 'vegetation entry has invalid visibilityMask'
     matrix = entry.get('matrix')
     if not isinstance(matrix, list) or len(matrix) != 4:
-      return False
+      return 'vegetation entry has invalid matrix'
     for row in matrix:
       if not isinstance(row, list) or len(row) != 4:
-        return False
-  return True
+        return 'vegetation entry has invalid matrix row'
+    for derivedKey in (
+      'gameModes',
+      'possibleModes',
+      'modeNames',
+      'guessedModes',
+      'visibilityMaskMeaning',
+      'modeVisibility'
+    ):
+      if derivedKey in entry:
+        return 'vegetation entry contains derived visibility field ' + derivedKey
+  return None

@@ -14,6 +14,7 @@ from .treeFallRuntime import (
   unregisterTreeFallHandler
 )
 from .treeFallTransform import fallenTreeMatrixRows
+from .visibility_mask import buildCurrentVisibilityContext, filterVegetationByVisibility
 from adisp import adisp_process
 from shared_utils import awaitNextFrame
 from helpers.CallbackDelayer import CallbackDelayer
@@ -68,7 +69,10 @@ class WotstatVegetation(CallbackDelayer):
     CallbackDelayer.__init__(self)
 
     self.vegetationData = []
+    self.visibleVegetationData = []
     self.vegetationDataArena = ''
+    self.visibilityContext = None
+    self.visibilityFilterApplied = False
 
     self.showPositions = False
     self.showColliders = False
@@ -76,12 +80,14 @@ class WotstatVegetation(CallbackDelayer):
     self.colliders = []
     self.colliderInstances = []
     self.collidersArena = ''
+    self.collidersVisibilityMask = None
     self.collidersProcessing = False
     self.collidersVisible = False
     self.colliderCache = None
     self.treeColliderByID = {}
     self.treeColliderStates = {}
     self.treeFallHookRegistered = False
+    self.avatarLeaveHookRegistered = False
 
     self.lastPosition = Math.Vector3(0, 0, 0)
     self.markers = []
@@ -89,13 +95,56 @@ class WotstatVegetation(CallbackDelayer):
     self.panel = ui.createPanel('Vegetation')
     self.panel.addCheckboxLine('Show positions (30m)', onToggleCallback=self.onShowPositions)
     self.panel.addCheckboxLine('Show colliders', onToggleCallback=self.onShowColliders)
+    self.registerAvatarLeaveHook()
 
   def dispose(self):
     self.showColliders = False
+    self.unregisterAvatarLeaveHook()
     self.stopCallback(self.update)
     self.clearMarkers()
     self.unregisterTreeFallHook()
     self.hideColliders()
+
+  def registerAvatarLeaveHook(self):
+    if self.avatarLeaveHookRegistered:
+      return
+    try:
+      from PlayerEvents import g_playerEvents
+      g_playerEvents.onAvatarBecomeNonPlayer += self.onAvatarBecomeNonPlayer
+      self.avatarLeaveHookRegistered = True
+      log('avatar leave handler registered')
+    except Exception as error:
+      log('avatar leave handler registration failed: ' + str(error))
+
+  def unregisterAvatarLeaveHook(self):
+    if not self.avatarLeaveHookRegistered:
+      return
+    try:
+      from PlayerEvents import g_playerEvents
+      g_playerEvents.onAvatarBecomeNonPlayer -= self.onAvatarBecomeNonPlayer
+      log('avatar leave handler unregistered')
+    except Exception as error:
+      log('avatar leave handler unregister failed: ' + str(error))
+    self.avatarLeaveHookRegistered = False
+
+  def onAvatarBecomeNonPlayer(self):
+    self.resetArenaRuntimeState('avatar become non-player')
+
+  def resetArenaRuntimeState(self, reason):
+    log('resetting arena runtime state: ' + str(reason))
+    self.showColliders = False
+    self.showPositions = False
+    self.stopCallback(self.update)
+    self.clearMarkers()
+    self.unregisterTreeFallHook()
+    self.clearColliderInstances()
+    self.collidersProcessing = False
+    self.vegetationData = []
+    self.visibleVegetationData = []
+    self.vegetationDataArena = ''
+    self.visibilityContext = None
+    self.visibilityFilterApplied = False
+    log('arena runtime state reset complete')
 
   def preferencesPath(self):
     getters = (
@@ -128,24 +177,58 @@ class WotstatVegetation(CallbackDelayer):
     vegetation = loadMapVegetation(mapName, self.preferencesPath(), VERSION, log)
     if vegetation is None:
       self.vegetationData = []
+      self.visibleVegetationData = []
+      self.visibilityFilterApplied = False
       self.vegetationDataArena = ''
       return
 
     self.vegetationData = vegetation
+    self.visibleVegetationData = vegetation
+    self.visibilityFilterApplied = False
     self.vegetationDataArena = mapName
 
+  def updateVisibilityFilter(self, mapName):
+    context = buildCurrentVisibilityContext(log)
+    self.visibilityContext = context
+    activeMask = context.get('activeMask')
+    log(
+      'current battle visibility: map=' + str(mapName) +
+      ' arenaTypeID=' + str(context.get('arenaTypeID')) +
+      ' gameplayID=' + str(context.get('gameplayID')) +
+      ' gameplayName=' + str(context.get('gameplayName')) +
+      ' bonusType=' + str(context.get('arenaBonusType')) +
+      ' activeMask=0x%08x' % (int(activeMask) & 0xffffffff)
+    )
+
+    visible, stats = filterVegetationByVisibility(self.vegetationData, activeMask)
+    self.visibleVegetationData = visible
+    self.visibilityFilterApplied = True
+    log(
+      'visibility filter: before=' + str(stats['before']) +
+      ' after=' + str(stats['after']) +
+      ' skipped=' + str(stats['skipped']) +
+      ' missing_mask=' + str(stats['missingMask']) +
+      ' invalid_mask=' + str(stats['invalidMask']) +
+      ' activeMask=0x%08x' % (int(activeMask) & 0xffffffff)
+    )
+
   def loadColliders(self):
-    if self.collidersArena == self.vegetationDataArena and self.colliders:
+    activeMask = None
+    if self.visibilityContext is not None:
+      activeMask = self.visibilityContext.get('activeMask')
+    if self.collidersArena == self.vegetationDataArena and self.collidersVisibilityMask == activeMask and self.colliders:
       log('collider instances already prepared for arena: ' + self.collidersArena)
       return
 
     self.clearColliderInstances()
     self.collidersArena = self.vegetationDataArena
+    self.collidersVisibilityMask = activeMask
     colliderCache = self.getColliderCache()
     modelPathByAsset = {}
     failedAssets = {}
 
-    for v in self.vegetationData:
+    vegetation = self.visibleVegetationData if self.visibilityFilterApplied else self.vegetationData
+    for v in vegetation:
       asset = v.get('asset')
       if not asset:
         continue
@@ -197,9 +280,18 @@ class WotstatVegetation(CallbackDelayer):
     )
 
   def clearColliderInstances(self):
+    try:
+      del self.colliders[:]
+    except Exception:
+      pass
+    try:
+      del self.colliderInstances[:]
+    except Exception:
+      pass
     self.colliders = []
     self.colliderInstances = []
     self.collidersArena = ''
+    self.collidersVisibilityMask = None
     self.collidersVisible = False
     self.treeColliderByID = {}
     self.treeColliderStates = {}
@@ -468,7 +560,8 @@ class WotstatVegetation(CallbackDelayer):
     self.clearMarkers()
 
     i = -1
-    for v in self.vegetationData:
+    vegetation = self.visibleVegetationData if self.visibilityFilterApplied else self.vegetationData
+    for v in vegetation:
       i += 1
 
       matrix = v['matrix']
@@ -521,5 +614,6 @@ class WotstatVegetation(CallbackDelayer):
     arenaName = BigWorld.player().arena.arenaType.geometryName
     if arenaName != self.vegetationDataArena: self.loadMapFromSpaceBin(arenaName)
     if arenaName != self.vegetationDataArena: return False
+    self.updateVisibilityFilter(arenaName)
 
     return True

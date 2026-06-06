@@ -2,10 +2,11 @@ import ResMgr
 
 from .spaceBinUnpacker import unpackVegetationFromSpaceBin
 from .runtimeCache import (
+  MAP_CACHE_FORMAT_VERSION,
+  mapPayloadInvalidReason,
   mapCachePath,
   normalizeResourcePathForKey,
   readJson,
-  validateMapPayload,
   writeJson
 )
 from .logger import log as defaultLog
@@ -39,6 +40,7 @@ def loadMapVegetation(arenaName, preferencesPath, version, logger=None):
   _logMapStats(logger, 'parsed space.bin', vegetation)
   try:
     writeJson(cachePath, {
+      'mapCacheFormatVersion': MAP_CACHE_FORMAT_VERSION,
       'version': version,
       'arena': arenaName,
       'spacePath': spacePath,
@@ -60,8 +62,9 @@ def _readCachedMap(cachePath, arenaName, logger):
     logger('map cache corrupt, regenerating ' + cachePath + ': ' + str(error))
     return None
 
-  if not validateMapPayload(payload, arenaName):
-    logger('map cache invalid, regenerating: ' + cachePath)
+  invalidReason = mapPayloadInvalidReason(payload, arenaName)
+  if invalidReason is not None:
+    logger('map cache invalid, regenerating: ' + cachePath + ' reason=' + invalidReason)
     return None
 
   return payload
@@ -69,11 +72,31 @@ def _readCachedMap(cachePath, arenaName, logger):
 
 def _logMapStats(logger, prefix, vegetation):
   unique = {}
+  masks = {}
   for entry in vegetation:
     asset = entry.get('asset')
     if asset:
       unique[normalizeResourcePathForKey(asset)] = True
+    if 'visibilityMask' in entry:
+      try:
+        mask = int(entry.get('visibilityMask')) & 0xffffffff
+        masks[mask] = masks.get(mask, 0) + 1
+      except Exception:
+        masks['invalid'] = masks.get('invalid', 0) + 1
+  numericMasks = []
+  for key in masks.keys():
+    if key != 'invalid':
+      numericMasks.append(key)
+  maskText = ','.join([
+    ('0x%08x' % mask) + ':' + str(masks[mask])
+    for mask in sorted(numericMasks)
+  ])
+  if 'invalid' in masks:
+    if maskText:
+      maskText += ','
+    maskText += 'invalid:' + str(masks['invalid'])
   logger(
     prefix + ': vegetation count=' + str(len(vegetation)) +
-    ' unique_srt=' + str(len(unique))
+    ' unique_srt=' + str(len(unique)) +
+    ' visibility_masks=' + (maskText or 'none')
   )

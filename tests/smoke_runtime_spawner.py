@@ -10,14 +10,33 @@ MOD_SCRIPTS = os.path.join(ROOT, 'mod', 'res', 'scripts', 'client', 'gui', 'mods
 sys.path.insert(0, MOD_SCRIPTS)
 
 
+if not hasattr(types, 'SimpleNamespace'):
+
+  class SimpleNamespace(object):
+
+    def __init__(self, **kwargs):
+      self.__dict__.update(kwargs)
+
+  types.SimpleNamespace = SimpleNamespace
+
+
 class FakePlayer(object):
 
   def __init__(self):
     self.models = []
     self.adds = 0
     self.removes = 0
+    self.spaceID = 9
+    self.arenaTypeID = 1
+    self.arenaBonusType = 0
+    self.arenaGuiType = 0
     self.arena = types.SimpleNamespace(
-      arenaType=types.SimpleNamespace(geometryName='01_karelia')
+      arenaType=types.SimpleNamespace(
+        id=1,
+        geometryName='01_karelia',
+        gameplayID=0,
+        gameplayName='ctf'
+      )
     )
 
   def addModel(self, model):
@@ -94,13 +113,38 @@ class FakePanel(object):
     pass
 
 
+class FakeEvent(object):
+
+  def __init__(self):
+    self.handlers = []
+
+  def __iadd__(self, handler):
+    self.handlers.append(handler)
+    return self
+
+  def __isub__(self, handler):
+    while handler in self.handlers:
+      self.handlers.remove(handler)
+    return self
+
+  def fire(self):
+    for handler in list(self.handlers):
+      handler()
+
+
 def installStubs(player):
   bigworld = types.ModuleType('BigWorld')
   bigworld.player = lambda: player
   bigworld.camera = lambda: types.SimpleNamespace(position=FakeVector3())
   bigworld.Model = FakeModel
   bigworld.Servo = FakeServo
+  bigworld.wg_getSpaceItemsVisibilityMask = lambda _spaceID: 1
   sys.modules['BigWorld'] = bigworld
+
+  arenaType = types.ModuleType('ArenaType')
+  arenaType.getVisibilityMask = lambda _arenaTypeID: 1
+  arenaType.getGameplayName = lambda _gameplayID: 'ctf'
+  sys.modules['ArenaType'] = arenaType
 
   mathModule = types.ModuleType('Math')
   mathModule.Vector3 = FakeVector3
@@ -127,6 +171,12 @@ def installStubs(player):
   callbackModule = types.ModuleType('helpers.CallbackDelayer')
   callbackModule.CallbackDelayer = FakeCallbackDelayer
   sys.modules['helpers.CallbackDelayer'] = callbackModule
+
+  playerEvents = types.ModuleType('PlayerEvents')
+  playerEvents.g_playerEvents = types.SimpleNamespace(
+    onAvatarBecomeNonPlayer=FakeEvent()
+  )
+  sys.modules['PlayerEvents'] = playerEvents
 
   gui = types.ModuleType('gui')
   debugUtils = types.ModuleType('gui.debugUtils')
@@ -188,8 +238,24 @@ def main():
 
   from wotstatVegetation.WotstatVegetation import WotstatVegetation  # noqa: E402
   from wotstatVegetation.treeFallTransform import fallenTreeMatrixRows  # noqa: E402
+  from wotstatVegetation.visibility_mask import (  # noqa: E402
+    buildCurrentVisibilityContext,
+    filterVegetationByVisibility,
+    isInstanceVisibleForMask
+  )
+
+  context = buildCurrentVisibilityContext()
+  check(context['activeMask'] == 1, 'active visibility mask from ArenaType')
+  check(isInstanceVisibleForMask(1, context['activeMask']), 'matching visibility mask visible')
+  check(not isInstanceVisibleForMask(2, context['activeMask']), 'non-matching visibility mask hidden')
+  visible, stats = filterVegetationByVisibility([
+    {'visibilityMask': 1},
+    {'visibilityMask': 2}
+  ], context['activeMask'])
+  check(len(visible) == 1 and stats['skipped'] == 1, 'visibility filter skips hidden instances')
 
   app = WotstatVegetation()
+  check(app.avatarLeaveHookRegistered, 'avatar leave hook registered')
   app.colliders = ['model-a', 'model-b']
   app.collidersArena = '01_karelia'
   app.showColliders = True
@@ -206,6 +272,8 @@ def main():
   check(len(player.models) == 0, 'models removed after hide')
   check(app.colliders == [], 'collider references cleared on disable')
   check(app.collidersArena == '', 'collider arena cleared on disable')
+  app.dispose()
+  check(not app.avatarLeaveHookRegistered, 'avatar leave hook unregistered on dispose')
 
   transform = fallenTreeMatrixRows(identityMatrixRows(), math.pi / 2.0, math.pi / 2.0)
   check(abs(transform[1][0] - 1.0) < 0.0001, 'fallen yaw points local tree height along +x')
@@ -218,6 +286,7 @@ def main():
     'asset': 'vegetation/Oak.srt',
     'chunkID': 100,
     'destrIndex': 7,
+    'visibilityMask': 1,
     'matrix': identityMatrixRows(10.0, 0.0, 20.0)
   }]
 
@@ -243,13 +312,26 @@ def main():
   app = WotstatVegetation()
   app.getColliderCache = lambda: FakeColliderCache()
   app.vegetationDataArena = '01_karelia'
-  app.vegetationData = [{
-    'asset': 'vegetation/Pine.srt',
-    'chunkID': 200,
-    'destrIndex': 8,
-    'matrix': identityMatrixRows(15.0, 0.0, 25.0)
-  }]
+  app.vegetationData = [
+    {
+      'asset': 'vegetation/Pine.srt',
+      'chunkID': 200,
+      'destrIndex': 8,
+      'visibilityMask': 1,
+      'matrix': identityMatrixRows(15.0, 0.0, 25.0)
+    },
+    {
+      'asset': 'vegetation/Hidden.srt',
+      'chunkID': 201,
+      'destrIndex': 9,
+      'visibilityMask': 2,
+      'matrix': identityMatrixRows(20.0, 0.0, 30.0)
+    }
+  ]
+  app.updateVisibilityFilter('01_karelia')
   app.loadColliders()
+  check(len(app.colliders) == 1, 'hidden visibility mask not spawned')
+  check((201, 9) not in app.treeColliderByID, 'hidden tree id not indexed')
 
   areaModule = types.ModuleType('AreaDestructibles')
   areaModule.g_destructiblesManager = FakeDestructiblesManager({
@@ -264,6 +346,39 @@ def main():
   app.syncFallenTreeStates()
   check(app.colliderInstances[0]['fallen'], 'already fallen tree synced to fallen orientation')
   check(len(app.colliders[0].motors) == 1, 'sync replaces transform motor')
+  check(app.onTreeFall(201, 9, 0.0, math.pi / 2.0, 0.0, 'hidden') is False, 'hidden tree fall does not create collider')
+
+  app = WotstatVegetation()
+  app.colliders = ['engine-owned-model']
+  app.colliderInstances = [{'model': 'engine-owned-model'}]
+  app.collidersArena = '01_karelia'
+  app.collidersVisible = True
+  app.collidersProcessing = True
+  app.showColliders = True
+  app.showPositions = True
+  app.vegetationDataArena = '01_karelia'
+  app.vegetationData = [{
+    'asset': 'vegetation/Pine.srt',
+    'visibilityMask': 1,
+    'matrix': identityMatrixRows()
+  }]
+  app.visibleVegetationData = list(app.vegetationData)
+  app.treeColliderByID = {(1, 2): [{'model': 'engine-owned-model'}]}
+  app.treeColliderStates = {(1, 2): ('fall',)}
+  player.removes = 0
+  sys.modules['PlayerEvents'].g_playerEvents.onAvatarBecomeNonPlayer.fire()
+  check(player.removes == 0, 'avatar leave reset must not delModel engine-cleaned colliders')
+  check(app.colliders == [], 'avatar leave clears collider references')
+  check(app.colliderInstances == [], 'avatar leave clears collider instances')
+  check(app.collidersArena == '', 'avatar leave clears collider arena')
+  check(app.vegetationData == [], 'avatar leave clears map data')
+  check(app.visibleVegetationData == [], 'avatar leave clears filtered map data')
+  check(app.vegetationDataArena == '', 'avatar leave clears map arena')
+  check(app.treeColliderByID == {}, 'avatar leave clears tree index')
+  check(app.treeColliderStates == {}, 'avatar leave clears tree states')
+  check(not app.showColliders, 'avatar leave clears show colliders flag')
+  check(not app.showPositions, 'avatar leave clears show positions flag')
+  check(not app.collidersProcessing, 'avatar leave clears processing flag')
 
   print('smoke_runtime_spawner: ok')
 

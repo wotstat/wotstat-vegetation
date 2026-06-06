@@ -34,14 +34,17 @@ def unpackVegetationFromSpaceBin(binary):
   )
 
   vegetation = []
-  for index, (assetKey, matrix) in enumerate(records):
+  for index, record in enumerate(records):
+    assetKey = record['assetKey']
+    matrix = record['matrix']
     asset = assets.get(assetKey)
     if asset is not None:
       vegetation.append({
         'asset': asset,
         'chunkID': _chunkIdForMatrix(terrainGrid, matrix),
         'destrIndex': destrIndices[index],
-        'matrix': matrix
+        'matrix': matrix,
+        'visibilityMask': record['visibilityMask']
       })
 
   return vegetation
@@ -145,7 +148,11 @@ def _parseSptr(section):
   records = []
   for index in range(recordCount):
     offset = recordsStart + index * recordSize
-    records.append((_readU32(section, offset + 64), _readMatrix(section, offset)))
+    records.append({
+      'matrix': _readMatrix(section, offset),
+      'assetKey': _readU32(section, offset + 64),
+      'visibilityMask': _readU32(section, offset + 76)
+    })
 
   return records
 
@@ -253,7 +260,7 @@ def _parseSpeedtreeDestrIndices(section, records, terrainGrid):
     if not speedtreeCandidates:
       continue
 
-    matrixChunkId = _chunkIdForMatrix(terrainGrid, records[speedtreeIndex][1])
+    matrixChunkId = _chunkIdForMatrix(terrainGrid, records[speedtreeIndex]['matrix'])
     chunkCandidates = [
       candidate for candidate in speedtreeCandidates
       if candidate['chunkID'] == matrixChunkId
