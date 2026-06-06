@@ -204,6 +204,21 @@ class FakeColliderCache(object):
   def ensureColliderModel(self, asset):
     return asset.replace('.srt', '.model')
 
+  def densityMetadataFor(self, asset):
+    if 'Red' in asset or 'Grass' in asset:
+      density = 0.0
+      affects = False
+      reason = 'test_red'
+    else:
+      density = 0.5
+      affects = True
+      reason = 'test_green'
+    return {
+      'camouflageDensity': density,
+      'camouflageAffects': affects,
+      'camouflageReason': reason
+    }
+
 
 class FakeDestructiblesManager(object):
 
@@ -312,6 +327,29 @@ def main():
   app = WotstatVegetation()
   app.getColliderCache = lambda: FakeColliderCache()
   app.vegetationDataArena = '01_karelia'
+  app.onlyCamouflable = True
+  app.vegetationData = [
+    {
+      'asset': 'vegetation/Green.srt',
+      'chunkID': 110,
+      'destrIndex': 1,
+      'matrix': identityMatrixRows(10.0, 0.0, 20.0)
+    },
+    {
+      'asset': 'vegetation/Red.srt',
+      'chunkID': 111,
+      'destrIndex': 2,
+      'matrix': identityMatrixRows(15.0, 0.0, 25.0)
+    }
+  ]
+  app.loadColliders()
+  check(len(app.colliders) == 1, 'only camuflagable skips red colliders')
+  check((110, 1) in app.treeColliderByID, 'green tree remains indexed')
+  check((111, 2) not in app.treeColliderByID, 'red tree skipped from tree index')
+
+  app = WotstatVegetation()
+  app.getColliderCache = lambda: FakeColliderCache()
+  app.vegetationDataArena = '01_karelia'
   app.vegetationData = [
     {
       'asset': 'vegetation/Pine.srt',
@@ -347,6 +385,15 @@ def main():
   check(app.colliderInstances[0]['fallen'], 'already fallen tree synced to fallen orientation')
   check(len(app.colliders[0].motors) == 1, 'sync replaces transform motor')
   check(app.onTreeFall(201, 9, 0.0, math.pi / 2.0, 0.0, 'hidden') is False, 'hidden tree fall does not create collider')
+
+  app.onShowColliders(True)
+  app.collidersVisible = True
+  player.adds = 0
+  player.removes = 0
+  drain(app.onOnlyCamouflable(True))
+  check(app.onlyCamouflable, 'only camuflagable flag enabled')
+  check(player.removes == 1, 'toggle refresh removes old visible colliders')
+  check(len(app.colliders) == 1, 'toggle refresh keeps filtered collider list')
 
   app = WotstatVegetation()
   app.colliders = ['engine-owned-model']

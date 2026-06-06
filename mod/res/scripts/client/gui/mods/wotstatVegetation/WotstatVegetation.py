@@ -4,7 +4,7 @@ import Math
 from .colliderCache import VegetationColliderCache
 from .logger import log
 from .mapCache import loadMapVegetation
-from .runtimeCache import normalizeResourcePathForKey
+from .runtimeCache import densityVariant, normalizeResourcePathForKey
 from .treeFallRuntime import (
   currentDestructiblesManager,
   currentDestructiblesSpaceID,
@@ -76,11 +76,13 @@ class WotstatVegetation(CallbackDelayer):
 
     self.showPositions = False
     self.showColliders = False
+    self.onlyCamouflable = True
 
     self.colliders = []
     self.colliderInstances = []
     self.collidersArena = ''
     self.collidersVisibilityMask = None
+    self.collidersOnlyCamouflable = None
     self.collidersProcessing = False
     self.collidersVisible = False
     self.colliderCache = None
@@ -93,8 +95,9 @@ class WotstatVegetation(CallbackDelayer):
     self.markers = []
 
     self.panel = ui.createPanel('Vegetation')
-    self.panel.addCheckboxLine('Show positions (30m)', onToggleCallback=self.onShowPositions)
-    self.panel.addCheckboxLine('Show colliders', onToggleCallback=self.onShowColliders)
+    self.checkboxShowPositions = self.panel.addCheckboxLine('Show positions (30m)', self.showPositions, onToggleCallback=self.onShowPositions)
+    self.checkboxShowColliders = self.panel.addCheckboxLine('Show colliders', self.showColliders, onToggleCallback=self.onShowColliders)
+    self.checkboxOnlyCamuflagable = self.panel.addCheckboxLine('  Only camuflagable', self.onlyCamouflable, onToggleCallback=self.onOnlyCamouflable)
     self.registerAvatarLeaveHook()
 
   def dispose(self):
@@ -144,6 +147,8 @@ class WotstatVegetation(CallbackDelayer):
     self.vegetationDataArena = ''
     self.visibilityContext = None
     self.visibilityFilterApplied = False
+    self.checkboxShowColliders.isChecked = False
+    self.checkboxShowPositions.isChecked = False
     log('arena runtime state reset complete')
 
   def preferencesPath(self):
@@ -216,16 +221,24 @@ class WotstatVegetation(CallbackDelayer):
     activeMask = None
     if self.visibilityContext is not None:
       activeMask = self.visibilityContext.get('activeMask')
-    if self.collidersArena == self.vegetationDataArena and self.collidersVisibilityMask == activeMask and self.colliders:
+    if (
+      self.collidersArena == self.vegetationDataArena and
+      self.collidersVisibilityMask == activeMask and
+      self.collidersOnlyCamouflable == self.onlyCamouflable and
+      self.colliders
+    ):
       log('collider instances already prepared for arena: ' + self.collidersArena)
       return
 
     self.clearColliderInstances()
     self.collidersArena = self.vegetationDataArena
     self.collidersVisibilityMask = activeMask
+    self.collidersOnlyCamouflable = self.onlyCamouflable
     colliderCache = self.getColliderCache()
     modelPathByAsset = {}
+    densityMetadataByAsset = {}
     failedAssets = {}
+    skippedRed = 0
 
     vegetation = self.visibleVegetationData if self.visibilityFilterApplied else self.vegetationData
     for v in vegetation:
@@ -235,6 +248,11 @@ class WotstatVegetation(CallbackDelayer):
       assetKey = normalizeResourcePathForKey(asset)
 
       if assetKey in failedAssets:
+        continue
+
+      densityMetadata = self.densityMetadataForCollider(colliderCache, asset, assetKey, densityMetadataByAsset)
+      if self.onlyCamouflable and densityVariant(densityMetadata.get('camouflageDensity')) == 'red':
+        skippedRed += 1
         continue
 
       if assetKey not in modelPathByAsset:
@@ -276,8 +294,27 @@ class WotstatVegetation(CallbackDelayer):
       'prepared collider instances: instances=' + str(len(self.colliders)) +
       ' unique_models=' + str(len(modelPathByAsset)) +
       ' failed_assets=' + str(len(failedAssets)) +
+      ' skipped_red=' + str(skippedRed) +
+      ' only_camuflagable=' + str(self.onlyCamouflable) +
       ' tree_ids=' + str(len(self.treeColliderByID))
     )
+
+  def densityMetadataForCollider(self, colliderCache, asset, assetKey, densityMetadataByAsset):
+    if assetKey in densityMetadataByAsset:
+      return densityMetadataByAsset[assetKey]
+
+    try:
+      metadata = colliderCache.densityMetadataFor(asset)
+    except Exception as error:
+      log('failed to read camouflage metadata for ' + str(asset) + ': ' + str(error))
+      metadata = {
+        'camouflageDensity': None,
+        'camouflageAffects': None,
+        'camouflageReason': 'metadata_error'
+      }
+
+    densityMetadataByAsset[assetKey] = metadata
+    return metadata
 
   def clearColliderInstances(self):
     try:
@@ -292,6 +329,7 @@ class WotstatVegetation(CallbackDelayer):
     self.colliderInstances = []
     self.collidersArena = ''
     self.collidersVisibilityMask = None
+    self.collidersOnlyCamouflable = None
     self.collidersVisible = False
     self.treeColliderByID = {}
     self.treeColliderStates = {}
@@ -547,6 +585,48 @@ class WotstatVegetation(CallbackDelayer):
       self.clearColliderInstances()
       log('cleared collider model references')
 
+  @adisp_process
+  def refreshColliders(self):
+    if self.collidersProcessing:
+      log('collider refresh skipped: colliders are processing')
+      return
+
+    wasShowing = self.showColliders
+    self.unregisterTreeFallHook()
+
+    player = BigWorld.player()
+    oldColliders = list(self.colliders)
+    if oldColliders and self.collidersVisible and player:
+      self.collidersProcessing = True
+      removed = 0
+      for col in oldColliders:
+        try:
+          player.delModel(col)
+        except Exception as error:
+          log('failed to remove collider model during refresh: ' + str(error))
+        removed += 1
+
+        if removed % 100 == 0: yield awaitNextFrame()
+
+      self.collidersVisible = False
+      self.collidersProcessing = False
+      log('removed collider models for refresh: ' + str(removed))
+    elif oldColliders and self.collidersVisible:
+      log('collider refresh could not remove visible models: player unavailable')
+
+    self.clearColliderInstances()
+
+    if not wasShowing:
+      return
+    if not self.prepareColliders():
+      self.showColliders = False
+      return
+
+    self.loadColliders()
+    self.registerTreeFallHook()
+    self.syncFallenTreeStates()
+    self.displayColliders()
+
   def clearMarkers(self):
     for marker in self.markers: marker.destroy()
     self.markers = []
@@ -607,6 +687,12 @@ class WotstatVegetation(CallbackDelayer):
         self.unregisterTreeFallHook()
 
         self.hideColliders()
+
+  def onOnlyCamouflable(self, isEnabled):
+    self.onlyCamouflable = bool(isEnabled)
+    log('only camuflagable colliders: ' + str(self.onlyCamouflable))
+    if self.showColliders:
+      return self.refreshColliders()
         
   def prepareColliders(self):
     if not isPlayerAvatar(): return

@@ -36,7 +36,7 @@ class VegetationColliderCache(object):
     if assetKey in self._modelPathByAsset:
       return self._modelPathByAsset[assetKey]
 
-    densityMetadata = self.densities.metadataFor(normalizedAsset)
+    densityMetadata = self.densityMetadataFor(normalizedAsset)
     density = densityMetadata['camouflageDensity']
     paths = colliderModelPaths(self.preferencesPath, self.version, normalizedAsset, density)
     texture = textureResourceForDensity(density)
@@ -71,6 +71,11 @@ class VegetationColliderCache(object):
 
     self._modelPathByAsset[assetKey] = modelPath
     return modelPath
+
+  def densityMetadataFor(self, assetPath):
+    assetPath = ensureSrtExtension(assetPath)
+    normalizedAsset = normalizeResourcePath(assetPath)
+    return self.densities.metadataFor(normalizedAsset)
 
   def _flipNormals(self, meshes):
     for mesh in meshes:
