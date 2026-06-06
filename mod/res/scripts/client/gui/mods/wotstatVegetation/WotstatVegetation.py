@@ -203,9 +203,14 @@ class WotstatVegetation(CallbackDelayer):
     if self.collidersProcessing: return
     if not self.colliders and not self.collidersVisible:
       return
-    self.collidersProcessing = True
     
     player = BigWorld.player()
+    if not player: 
+      self.collidersVisible = False
+      self.colliders = []
+      return
+
+    self.collidersProcessing = True
 
     i = 0
     for col in self.colliders:

@@ -1,10 +1,33 @@
 # wotstat-vegetation
 
+Runtime vegetation camouflage collider visualizer for World of Tanks.
 
-## Как добавить свои карты
+The mod reads the current arena `space.bin`, finds SpeedTree vegetation
+instances, extracts `COLLISION` geometry from each referenced `.srt`, exports a
+game-loadable `.model + .visual + .primitives` set, and spawns those generated
+models in battle with `BigWorld.Model(path)`.
 
-### Подготовка коллайдера для растения
-1. Распакуйте `.pkg` архив с нужными растениями
-2. Добавьте в `Blender` два аддона из папки `blender`: `io_srt_loader` и `io_export_wot`
-3. Импортируйте `.srt` файл с нужным растением в `Blender`
-4. Постройте вокруг него коробку или `Convex Hull` и экспортируйте её в `.model` формате (с помощью аддона `io_export_wot`). Путь экспорта должен быть `res_mods/mods/wotstat-vegetation/colliders/исходный_путь_к_растению.model`, например `/mods/wotstat-vegetation/colliders/vegetation/Broadleaves/Chestnut/Chestnut_10m.model`
+Generated assets are cached under:
+
+```text
+getPreferencesFilePath()/mods/wotstat-vegetation/{version}/colliders
+getPreferencesFilePath()/mods/wotstat-vegetation/{version}/maps
+```
+
+Bundled prebuilt collider models are intentionally not used. The first enable on
+a map may parse/generate missing data; later enables reuse the cache.
+
+Shared visualization textures:
+
+```text
+density == 0.5  -> mods/wotstat-vegetation/green.dds
+density == 0.25 -> mods/wotstat-vegetation/yellow.dds
+otherwise       -> mods/wotstat-vegetation/red.dds
+```
+
+Local smoke checks:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 tests/smoke_runtime_cache.py
+PYTHONDONTWRITEBYTECODE=1 python3 tests/smoke_runtime_spawner.py
+```

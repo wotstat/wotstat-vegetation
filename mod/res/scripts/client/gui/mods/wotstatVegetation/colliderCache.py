@@ -66,6 +66,8 @@ class VegetationColliderCache(object):
     return modelPath
 
   def _flipNormals(self, meshes):
+    for mesh in meshes:
+      mesh.triangles = [(a, c, b) for a, b, c in mesh.triangles]
     return meshes
 
   def _generateCollider(self, assetPath, density, texture, paths):
