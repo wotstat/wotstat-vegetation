@@ -17,13 +17,10 @@ WGDE_SPEEDTREE_INDEX_MASK = 0x7fffffff
 
 class SpaceBinUnpackError(Exception):
   pass
-
-
 def _isFinite(value):
   if hasattr(math, 'isfinite'):
     return math.isfinite(value)
   return value == value and value != float('inf') and value != float('-inf')
-
 
 def unpackVegetationFromSpaceBin(binary):
   sections = _parseSectionTable(binary)
@@ -32,7 +29,8 @@ def unpackVegetationFromSpaceBin(binary):
   terrainGrid = _parseTerrainGrid(_sectionDataOptional(binary, sections, b'BWT2'))
   destrIndices = _parseSpeedtreeDestrIndices(
     _sectionDataOptional(binary, sections, b'WGDE'),
-    len(records)
+    records,
+    terrainGrid
   )
 
   vegetation = []
@@ -192,44 +190,92 @@ def _parseTerrainGrid(section):
   }
 
 
-def _parseSpeedtreeDestrIndices(section, speedtreeCount):
+def _parseSpeedtreeDestrIndices(section, records, terrainGrid):
+  speedtreeCount = len(records)
   destrIndices = [None] * speedtreeCount
   if section is None:
     return destrIndices
 
-  offset = _skipWGDETable(section, 0, WGDE_CHUNK_ENTRY_SIZE)
-  offset = _skipWGDETable(section, offset, WGDE_SPAN_ENTRY_SIZE)
+  chunkTable = _readWGDETable(section, 0, WGDE_CHUNK_ENTRY_SIZE)
+  spanTable = _readWGDETable(section, chunkTable['end'], WGDE_SPAN_ENTRY_SIZE)
 
-  if offset == len(section):
+  if spanTable['end'] == len(section):
     return destrIndices
 
-  objectSize = _readU32(section, offset)
-  objectCount = _readU32(section, offset + 4)
+  objectTable = _readWGDETable(section, spanTable['end'], WGDE_OBJECT_ENTRY_SIZE)
+  candidates = [[] for _ in range(speedtreeCount)]
 
-  if objectSize != WGDE_OBJECT_ENTRY_SIZE:
-    raise SpaceBinUnpackError('unsupported WGDE object entry size: ' + str(objectSize))
+  for chunkIndex in range(chunkTable['count']):
+    chunkOffset = chunkTable['start'] + chunkIndex * chunkTable['entrySize']
+    chunkId = _readU32(section, chunkOffset)
+    spanStart = _readU32(section, chunkOffset + 4)
+    spanCount = _readU32(section, chunkOffset + 8)
 
-  objectsStart = offset + 8
-  _checkBounds(section, objectsStart, objectSize * objectCount, 'WGDE objects')
+    if spanStart + spanCount > spanTable['count']:
+      raise SpaceBinUnpackError('WGDE chunk span range out of bounds: index=' + str(chunkIndex))
 
-  for objectIndex in range(objectCount):
-    value = _readU32(section, objectsStart + objectIndex * objectSize)
-    if value & WGDE_SPEEDTREE_OBJECT_FLAG == 0:
+    for localDestrIndex in range(spanCount):
+      spanOffset = spanTable['start'] + (spanStart + localDestrIndex) * spanTable['entrySize']
+      objectIndexes = (_readU32(section, spanOffset), _readU32(section, spanOffset + 4))
+      objectValues = []
+
+      for objectIndex in objectIndexes:
+        if objectIndex >= objectTable['count']:
+          raise SpaceBinUnpackError(
+            'WGDE object index out of bounds: chunk_index=' + str(chunkIndex) +
+            ' local_index=' + str(localDestrIndex)
+          )
+
+        value = _readU32(section, objectTable['start'] + objectIndex * objectTable['entrySize'])
+        objectValues.append(value)
+
+      speedtreeIndexes = []
+      for value in objectValues:
+        if value & WGDE_SPEEDTREE_OBJECT_FLAG == 0:
+          continue
+
+        speedtreeIndex = value & WGDE_SPEEDTREE_INDEX_MASK
+        if speedtreeIndex >= speedtreeCount:
+          continue
+
+        if speedtreeIndex not in speedtreeIndexes:
+          speedtreeIndexes.append(speedtreeIndex)
+
+      for speedtreeIndex in speedtreeIndexes:
+        speedtreeValue = WGDE_SPEEDTREE_OBJECT_FLAG | speedtreeIndex
+        candidates[speedtreeIndex].append({
+          'chunkID': chunkId,
+          'destrIndex': localDestrIndex,
+          'isSelfRow': objectValues[0] == speedtreeValue and objectValues[1] == speedtreeValue
+        })
+
+  for speedtreeIndex, speedtreeCandidates in enumerate(candidates):
+    if not speedtreeCandidates:
       continue
 
-    speedtreeIndex = value & WGDE_SPEEDTREE_INDEX_MASK
-    if speedtreeIndex >= speedtreeCount:
-      continue
+    matrixChunkId = _chunkIdForMatrix(terrainGrid, records[speedtreeIndex][1])
+    chunkCandidates = [
+      candidate for candidate in speedtreeCandidates
+      if candidate['chunkID'] == matrixChunkId
+    ]
+    if chunkCandidates:
+      speedtreeCandidates = chunkCandidates
 
-    if destrIndices[speedtreeIndex] is not None:
-      raise SpaceBinUnpackError('duplicate WGDE speedtree object index: ' + str(speedtreeIndex))
+    selfCandidates = [
+      candidate for candidate in speedtreeCandidates
+      if candidate['isSelfRow']
+    ]
+    if selfCandidates:
+      speedtreeCandidates = selfCandidates
 
-    destrIndices[speedtreeIndex] = objectIndex
+    destrIndices[speedtreeIndex] = min(
+      candidate['destrIndex'] for candidate in speedtreeCandidates
+    )
 
   return destrIndices
 
 
-def _skipWGDETable(section, offset, expectedEntrySize):
+def _readWGDETable(section, offset, expectedEntrySize):
   _checkBounds(section, offset, 8, 'WGDE table header')
 
   entrySize = _readU32(section, offset)
@@ -245,7 +291,12 @@ def _skipWGDETable(section, offset, expectedEntrySize):
   tableStart = offset + 8
   tableBytes = entrySize * entryCount
   _checkBounds(section, tableStart, tableBytes, 'WGDE table')
-  return tableStart + tableBytes
+  return {
+    'start': tableStart,
+    'end': tableStart + tableBytes,
+    'entrySize': entrySize,
+    'count': entryCount
+  }
 
 
 def _chunkIdForMatrix(terrainGrid, matrix):

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import math
 import sys
 import types
 
@@ -53,6 +54,28 @@ class FakeMatrix(object):
     self.values[x][y] = value
 
 
+class FakeServo(object):
+
+  def __init__(self, matrix):
+    self.matrix = matrix
+
+
+class FakeModel(object):
+
+  def __init__(self, path):
+    self.path = path
+    self.castsShadow = True
+    self.motors = []
+    self.matrix = None
+
+  def addMotor(self, motor):
+    self.motors.append(motor)
+
+  def delMotor(self, motor):
+    if motor in self.motors:
+      self.motors.remove(motor)
+
+
 class FakeCallbackDelayer(object):
 
   def __init__(self):
@@ -75,6 +98,8 @@ def installStubs(player):
   bigworld = types.ModuleType('BigWorld')
   bigworld.player = lambda: player
   bigworld.camera = lambda: types.SimpleNamespace(position=FakeVector3())
+  bigworld.Model = FakeModel
+  bigworld.Servo = FakeServo
   sys.modules['BigWorld'] = bigworld
 
   mathModule = types.ModuleType('Math')
@@ -124,11 +149,45 @@ def check(condition, message):
     raise AssertionError(message)
 
 
+class FakeColliderCache(object):
+
+  def ensureColliderModel(self, asset):
+    return asset.replace('.srt', '.model')
+
+
+class FakeDestructiblesManager(object):
+
+  def __init__(self, controllers):
+    self.controllers = controllers
+
+  def getController(self, chunkID):
+    return self.controllers.get(chunkID)
+
+  def getSpaceID(self):
+    return 1
+
+
+class FakeDestructiblesController(object):
+
+  def __init__(self, fallenTrees):
+    self.fallenTrees = fallenTrees
+
+
+def identityMatrixRows(x=0.0, y=0.0, z=0.0):
+  return [
+    [1.0, 0.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0, 0.0],
+    [0.0, 0.0, 1.0, 0.0],
+    [x, y, z, 1.0]
+  ]
+
+
 def main():
   player = FakePlayer()
   installStubs(player)
 
   from wotstatVegetation.WotstatVegetation import WotstatVegetation  # noqa: E402
+  from wotstatVegetation.treeFallTransform import fallenTreeMatrixRows  # noqa: E402
 
   app = WotstatVegetation()
   app.colliders = ['model-a', 'model-b']
@@ -147,6 +206,64 @@ def main():
   check(len(player.models) == 0, 'models removed after hide')
   check(app.colliders == [], 'collider references cleared on disable')
   check(app.collidersArena == '', 'collider arena cleared on disable')
+
+  transform = fallenTreeMatrixRows(identityMatrixRows(), math.pi / 2.0, math.pi / 2.0)
+  check(abs(transform[1][0] - 1.0) < 0.0001, 'fallen yaw points local tree height along +x')
+  check(abs(transform[1][1]) < 0.0001, 'fallen tree no longer points up')
+
+  app = WotstatVegetation()
+  app.getColliderCache = lambda: FakeColliderCache()
+  app.vegetationDataArena = '01_karelia'
+  app.vegetationData = [{
+    'asset': 'vegetation/Oak.srt',
+    'chunkID': 100,
+    'destrIndex': 7,
+    'matrix': identityMatrixRows(10.0, 0.0, 20.0)
+  }]
+
+  app.loadColliders()
+  app.loadColliders()
+  check(len(app.colliders) == 1, 'repeated loadColliders must not duplicate models')
+  check((100, 7) in app.treeColliderByID, 'tree id indexed')
+  model = app.colliders[0]
+  check(len(model.motors) == 1, 'standing collider has one transform motor')
+
+  check(app.onTreeFall(100, 999, 0.0, math.pi / 2.0, 0.0, 'test') is False, 'unknown tree id ignored')
+  check(app.onTreeFall(100, 7, 0.0, math.pi / 2.0, 0.0, 'test') is True, 'known tree fall handled')
+  check(len(model.motors) == 1, 'fallen transform replaces motor instead of adding one')
+  check(app.colliderInstances[0]['fallen'], 'collider marked fallen')
+  check(abs(app.colliderInstances[0]['currentMatrixRows'][1][2] - 1.0) < 0.0001, 'fall yaw 0 points along +z')
+  check(app.onTreeFall(100, 7, 0.0, math.pi / 2.0, 0.0, 'repeat') is False, 'repeated same fall state ignored')
+  check(len(model.motors) == 1, 'repeated fall state keeps one motor')
+
+  app.clearColliderInstances()
+  check(app.treeColliderByID == {}, 'tree collider index cleared')
+  check(app.treeColliderStates == {}, 'tree collider states cleared')
+
+  app = WotstatVegetation()
+  app.getColliderCache = lambda: FakeColliderCache()
+  app.vegetationDataArena = '01_karelia'
+  app.vegetationData = [{
+    'asset': 'vegetation/Pine.srt',
+    'chunkID': 200,
+    'destrIndex': 8,
+    'matrix': identityMatrixRows(15.0, 0.0, 25.0)
+  }]
+  app.loadColliders()
+
+  areaModule = types.ModuleType('AreaDestructibles')
+  areaModule.g_destructiblesManager = FakeDestructiblesManager({
+    200: FakeDestructiblesController([(8, math.pi / 2.0, math.pi / 2.0, 0.0)])
+  })
+  sys.modules['AreaDestructibles'] = areaModule
+  cacheModule = types.ModuleType('DestructiblesCache')
+  cacheModule.decodeFallenTree = lambda data: data
+  cacheModule.DESTR_TYPE_TREE = 0
+  sys.modules['DestructiblesCache'] = cacheModule
+
+  app.syncFallenTreeStates()
+  check(app.colliderInstances[0]['fallen'], 'already fallen tree synced to fallen orientation')
+  check(len(app.colliders[0].motors) == 1, 'sync replaces transform motor')
 
   print('smoke_runtime_spawner: ok')
 

@@ -5,6 +5,15 @@ from .colliderCache import VegetationColliderCache
 from .logger import log
 from .mapCache import loadMapVegetation
 from .runtimeCache import normalizeResourcePathForKey
+from .treeFallRuntime import (
+  currentDestructiblesManager,
+  currentDestructiblesSpaceID,
+  decodeFallenTreeData,
+  isBushDestructible,
+  registerTreeFallHandler,
+  unregisterTreeFallHandler
+)
+from .treeFallTransform import fallenTreeMatrixRows
 from adisp import adisp_process
 from shared_utils import awaitNextFrame
 from helpers.CallbackDelayer import CallbackDelayer
@@ -65,10 +74,14 @@ class WotstatVegetation(CallbackDelayer):
     self.showColliders = False
 
     self.colliders = []
+    self.colliderInstances = []
     self.collidersArena = ''
     self.collidersProcessing = False
     self.collidersVisible = False
     self.colliderCache = None
+    self.treeColliderByID = {}
+    self.treeColliderStates = {}
+    self.treeFallHookRegistered = False
 
     self.lastPosition = Math.Vector3(0, 0, 0)
     self.markers = []
@@ -81,6 +94,7 @@ class WotstatVegetation(CallbackDelayer):
     self.showColliders = False
     self.stopCallback(self.update)
     self.clearMarkers()
+    self.unregisterTreeFallHook()
     self.hideColliders()
 
   def preferencesPath(self):
@@ -157,21 +171,229 @@ class WotstatVegetation(CallbackDelayer):
         failedAssets[assetKey] = True
         continue
       
-      matrix = toMatrix(v['matrix'])
+      matrixRows = self.copyMatrixRows(v['matrix'])
+      matrix = toMatrix(matrixRows)
       servo = BigWorld.Servo(matrix)
       model.addMotor(servo)
       self.colliders.append(model)
+      instance = {
+        'model': model,
+        'servo': servo,
+        'asset': asset,
+        'standingMatrixRows': matrixRows,
+        'currentMatrixRows': matrixRows,
+        'chunkID': v.get('chunkID'),
+        'destrIndex': v.get('destrIndex'),
+        'fallen': False
+      }
+      self.colliderInstances.append(instance)
+      self.addTreeColliderIndex(instance)
 
     log(
       'prepared collider instances: instances=' + str(len(self.colliders)) +
       ' unique_models=' + str(len(modelPathByAsset)) +
-      ' failed_assets=' + str(len(failedAssets))
+      ' failed_assets=' + str(len(failedAssets)) +
+      ' tree_ids=' + str(len(self.treeColliderByID))
     )
 
   def clearColliderInstances(self):
     self.colliders = []
+    self.colliderInstances = []
     self.collidersArena = ''
     self.collidersVisible = False
+    self.treeColliderByID = {}
+    self.treeColliderStates = {}
+
+  def copyMatrixRows(self, matrixRows):
+    return [list(row) for row in matrixRows]
+
+  def treeKey(self, chunkID, destrIndex):
+    if chunkID is None or destrIndex is None:
+      return None
+    try:
+      return (int(chunkID), int(destrIndex))
+    except Exception as error:
+      log(
+        'invalid tree id: chunkID=' + str(chunkID) +
+        ' destrIndex=' + str(destrIndex) + ' error=' + str(error)
+      )
+      return None
+
+  def treeIDText(self, key):
+    if key is None:
+      return 'chunkID=None destrIndex=None'
+    return 'chunkID=' + str(key[0]) + ' destrIndex=' + str(key[1])
+
+  def addTreeColliderIndex(self, instance):
+    key = self.treeKey(instance.get('chunkID'), instance.get('destrIndex'))
+    if key is None:
+      return
+    entries = self.treeColliderByID.setdefault(key, [])
+    entries.append(instance)
+    if len(entries) > 1:
+      log('duplicate tree collider id: ' + self.treeIDText(key) + ' count=' + str(len(entries)))
+
+  def treeChunks(self):
+    chunks = {}
+    for chunkID, _destrIndex in self.treeColliderByID.keys():
+      chunks[chunkID] = True
+    return chunks.keys()
+
+  def registerTreeFallHook(self):
+    if self.treeFallHookRegistered:
+      return
+    if not self.treeColliderByID:
+      log('tree fall hook skipped: no destructible tree ids in collider set')
+      return
+    self.treeFallHookRegistered = registerTreeFallHandler(self.onTreeFall, log)
+
+  def unregisterTreeFallHook(self):
+    if not self.treeFallHookRegistered:
+      return
+    unregisterTreeFallHandler(self.onTreeFall, log)
+    self.treeFallHookRegistered = False
+
+  def syncFallenTreeStates(self):
+    if not self.treeColliderByID:
+      return
+
+    manager = currentDestructiblesManager(log)
+    if manager is None:
+      log('fallen tree state sync skipped: destructibles manager unavailable')
+      return
+
+    chunksChecked = 0
+    fallenSeen = 0
+    updated = 0
+    for chunkID in self.treeChunks():
+      try:
+        controller = manager.getController(chunkID)
+      except Exception as error:
+        log('failed to read destructibles controller for chunkID=' + str(chunkID) + ': ' + str(error))
+        continue
+      if controller is None:
+        continue
+      chunksChecked += 1
+      try:
+        fallenTrees = getattr(controller, 'fallenTrees', ()) or ()
+      except Exception as error:
+        log('failed to read fallenTrees for chunkID=' + str(chunkID) + ': ' + str(error))
+        continue
+      for fallData in fallenTrees:
+        decoded = decodeFallenTreeData(fallData, log)
+        if decoded is None:
+          continue
+        fallenSeen += 1
+        destrIndex, fallYaw, fallPitchConstr, fallSpeed = decoded
+        if self.onTreeFall(chunkID, destrIndex, fallYaw, fallPitchConstr, fallSpeed, 'sync'):
+          updated += 1
+
+    log(
+      'fallen tree state sync complete: chunks=' + str(chunksChecked) +
+      ' fallen=' + str(fallenSeen) +
+      ' updated=' + str(updated)
+    )
+
+  def onTreeFall(self, chunkID, destrIndex, fallYaw, fallPitchConstr, fallSpeed, source):
+    key = self.treeKey(chunkID, destrIndex)
+    if key is None:
+      log(
+        'tree fall event missing tree id: chunkID=' + str(chunkID) +
+        ' destrIndex=' + str(destrIndex)
+      )
+      return False
+
+    instances = self.treeColliderByID.get(key)
+    if not instances:
+      log(
+        'tree fall event has no collider: ' + self.treeIDText(key) +
+        ' source=' + str(source) +
+        ' yaw=' + str(fallYaw)
+      )
+      return False
+
+    state = (fallYaw, fallPitchConstr, fallSpeed)
+    if self.treeColliderStates.get(key) == state:
+      return False
+
+    spaceID = currentDestructiblesSpaceID(log)
+    if isBushDestructible(spaceID, key[0], key[1], log):
+      self.treeColliderStates[key] = state
+      log(
+        'tree fall event is bush, collider unchanged: ' + self.treeIDText(key) +
+        ' source=' + str(source)
+      )
+      return False
+
+    log(
+      'detected tree fall: ' + self.treeIDText(key) +
+      ' source=' + str(source) +
+      ' yaw=' + str(fallYaw) +
+      ' pitchConstr=' + str(fallPitchConstr) +
+      ' speed=' + str(fallSpeed)
+    )
+
+    updated = 0
+    for instance in instances:
+      try:
+        matrixRows = fallenTreeMatrixRows(instance['standingMatrixRows'], fallYaw, fallPitchConstr)
+      except Exception as error:
+        log('failed to compute fallen tree collider transform: ' + self.treeIDText(key) + ' error=' + str(error))
+        continue
+      if self.setColliderTransform(instance, matrixRows, key):
+        updated += 1
+
+    if updated > 0:
+      self.treeColliderStates[key] = state
+      log(
+        'updated fallen tree collider transform: ' + self.treeIDText(key) +
+        ' models=' + str(updated) +
+        ' yaw=' + str(fallYaw)
+      )
+      return True
+
+    log('tree fall event did not update collider: ' + self.treeIDText(key))
+    return False
+
+  def setColliderTransform(self, instance, matrixRows, key):
+    model = instance.get('model')
+    if model is None:
+      log('missing collider model for tree: ' + self.treeIDText(key))
+      return False
+
+    oldServo = instance.get('servo')
+    if oldServo is not None and getattr(model, 'delMotor', None) is not None:
+      try:
+        motors = getattr(model, 'motors', None)
+        if motors is None:
+          model.delMotor(oldServo)
+        else:
+          try:
+            hasOldServo = oldServo in motors
+          except Exception:
+            hasOldServo = True
+          if hasOldServo:
+            model.delMotor(oldServo)
+      except Exception as error:
+        log('failed to remove old collider transform motor: ' + self.treeIDText(key) + ' error=' + str(error))
+
+    matrix = toMatrix(matrixRows)
+    try:
+      servo = BigWorld.Servo(matrix)
+      model.addMotor(servo)
+      instance['servo'] = servo
+    except Exception as error:
+      log('failed to replace collider transform motor: ' + self.treeIDText(key) + ' error=' + str(error))
+      try:
+        model.matrix = matrix
+        instance['servo'] = None
+      except Exception as matrixError:
+        log('failed to assign collider matrix directly: ' + self.treeIDText(key) + ' error=' + str(matrixError))
+        return False
+
+    instance['currentMatrixRows'] = matrixRows
+    instance['fallen'] = True
+    return True
 
   @adisp_process
   def displayColliders(self):
@@ -207,7 +429,9 @@ class WotstatVegetation(CallbackDelayer):
     player = BigWorld.player()
     if not player: 
       self.collidersVisible = False
-      self.colliders = []
+      if not self.showColliders:
+        self.clearColliderInstances()
+        log('cleared collider model references without player')
       return
 
     self.collidersProcessing = True
@@ -280,11 +504,14 @@ class WotstatVegetation(CallbackDelayer):
           return
 
         self.loadColliders()
+        self.registerTreeFallHook()
+        self.syncFallenTreeStates()
         self.displayColliders()
 
     else:
       if self.showColliders:
         self.showColliders = False
+        self.unregisterTreeFallHook()
 
         self.hideColliders()
         

@@ -45,9 +45,6 @@ rm -rf $folder
 zip -dvr -0 -X $folder res -i "*.pyc"
 zip -vr -0 -X $folder meta.xml
 zip -dvr -0 -X $folder res -i "*.dds"
-zip -dvr -0 -X $folder res -i "*.model"
-zip -dvr -0 -X $folder res -i "*.primitives"
-zip -dvr -0 -X $folder res -i "*.visual"
 
 cd ../
 cp ./build/$folder $folder
