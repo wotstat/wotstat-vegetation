@@ -12,7 +12,7 @@ python3 tools/vegetation-collision-extractor/extract.py \
 ```
 
 Use a `.json` output suffix to write vertices and triangle indices as JSON instead of OBJ.
-When `packages/scripts/destructibles.xml` has a matching vegetation entry, the extractor also prints and writes its `density` value as metadata.
+When `packages/scripts/destructibles.xml` has a matching vegetation entry, the extractor also prints and writes its raw `destructibles_density`. It also resolves `packages/vegetation/bushes.xml` and `packages/vegetation/grassBushes.xml` to report whether the object appears to affect camouflage.
 
 ```bash
 python3 tools/vegetation-collision-extractor/verify_known.py \
@@ -28,16 +28,33 @@ The SRT string table contains material/resource names such as `COLLISION`, `SOLI
 
 For the known objects:
 
-| Object | Vertices | Triangles | Density | Source |
-| --- | ---: | ---: | ---: | --- |
-| `vegetation/Broadleaves/Chestnut/Chestnut_10m` | 89 | 32 | `0.5` | `packages/vegetation/Broadleaves/Chestnut/Chestnut_10m.srt` |
-| `vegetation/Broadleaves/Poplar/Poplar_12m` | 126 | 48 | `0.5` | `packages/vegetation/Broadleaves/Poplar/Poplar_12m.srt` |
-| `vegetation/Broadleaves/Poplar/Poplar_21m` | 108 | 48 | `0.5` | `packages/vegetation/Broadleaves/Poplar/Poplar_21m.srt` |
-| `vegetation/Broadleaves/Shrubs/Bush_Wild/Bush_Wild_5m` | 17 | 24 | `0.5` | `packages/vegetation/Broadleaves/Shrubs/Bush_Wild/Bush_Wild_5m.srt` |
+| Object | Vertices | Triangles | Camouflage | Camouflage Density | Source |
+| --- | ---: | ---: | --- | ---: | --- |
+| `vegetation/Broadleaves/Chestnut/Chestnut_10m` | 89 | 32 | `true` | `0.5` | `packages/vegetation/Broadleaves/Chestnut/Chestnut_10m.srt` |
+| `vegetation/Broadleaves/Poplar/Poplar_12m` | 126 | 48 | `true` | `0.5` | `packages/vegetation/Broadleaves/Poplar/Poplar_12m.srt` |
+| `vegetation/Broadleaves/Poplar/Poplar_21m` | 108 | 48 | `true` | `0.5` | `packages/vegetation/Broadleaves/Poplar/Poplar_21m.srt` |
+| `vegetation/Broadleaves/Shrubs/Bush_Wild/Bush_Wild_5m` | 17 | 24 | `true` | `0.5` | `packages/vegetation/Broadleaves/Shrubs/Bush_Wild/Bush_Wild_5m.srt` |
+| `vegetation/Broadleaves/DryTree/DryTree_Bush_var2` | 24 | 12 | `false` | `0` | `packages/vegetation/Broadleaves/DryTree/DryTree_Bush_var2.srt` |
+| `vegetation/Conifers/Pine_Young/Pine_Young_almoust_2m` | 32 | 14 | `false` | `0` | `packages/vegetation/Conifers/Pine_Young/Pine_Young_almoust_2m.srt` |
+| `vegetation/Broadleaves/Shrubs/Hawthorn/Hawthorn_03` | 24 | 12 | `false` | `0` | `packages/vegetation/Broadleaves/Shrubs/Hawthorn/Hawthorn_03.srt` |
+| `vegetation/Broadleaves/Shrubs/Bush_Wild_Autumn/Bush_Wild_Autumn_5m` | 24 | 12 | `true` | `0.5` | `packages/vegetation/Broadleaves/Shrubs/Bush_Wild_Autumn/Bush_Wild_Autumn_5m.srt` |
+| `vegetation/Broadleaves/Oak_dry/Oak_dry_25m` | 27 | 32 | `true` | `0.25` | `packages/vegetation/Broadleaves/Oak_dry/Oak_dry_25m.srt` |
+| `vegetation/Broadleaves/Shrubs/Bush_Wild/Bush_Wild_2m` | 24 | 12 | `true` | `0.5` | `packages/vegetation/Broadleaves/Shrubs/Bush_Wild/Bush_Wild_2m.srt` |
 
 Across `packages/vegetation`, all 964 `.srt` files parsed successfully. 376 contain a `COLLISION` string and 376 contain at least one draw call using that `COLLISION` render state. 213 contain a `SOLID` draw call, usually a trunk or rigid-object style mesh rather than the foliage/camouflage mesh.
 
-`packages/scripts/destructibles.xml` has 428 vegetation entries with a `density` value. The distribution is 324 entries at `0.5`/`0.50` and 104 entries at `0.25`. Of the 376 SRTs with `COLLISION` meshes, 370 also have a destructibles `density`: 289 at `0.5` and 81 at `0.25`. Six collision SRTs have no matching destructibles density entry, so treat missing density as unknown rather than as zero.
+`SOLID` is not used as a camouflage-positive or camouflage-negative signal. In this dataset, 190 SRTs have both `SOLID` and `COLLISION`; they are classified through the `COLLISION` mesh and metadata rules below. Another 23 SRTs have `SOLID` but no `COLLISION`; those are not treated as camouflage meshes by the extractor. The `--include-solid` option is only for inspection/exporting extra rigid/trunk geometry.
+
+`packages/scripts/destructibles.xml` has 428 vegetation entries with a `density` value. The distribution is 324 entries at `0.5`/`0.50` and 104 entries at `0.25`. Density is not enough by itself: some `grassBushes.xml` objects have both `COLLISION` meshes and destructibles density, but do not affect camouflage.
+
+Current camouflage classification rule:
+
+- If the SRT stem is listed in `packages/vegetation/grassBushes.xml`, treat it as non-camouflage (`camouflage_affects = false`, effective `camouflage_density = 0`).
+- If the SRT stem is listed in `packages/vegetation/bushes.xml`, has a `COLLISION` mesh, and has destructibles density, treat it as camouflage-affecting with that density.
+- If it is not in either list, has a `COLLISION` mesh, and has destructibles density, treat it as a tree/unlisted camouflage object with that density.
+- If it has a `COLLISION` mesh but no destructibles density and is not in either list, report camouflage as unknown.
+
+By this rule, among 376 SRTs with `COLLISION` meshes: 342 are camouflage-affecting, 33 are explicitly non-camouflage because they are listed in `grassBushes.xml`, and 1 is unknown.
 
 ## Linkage
 

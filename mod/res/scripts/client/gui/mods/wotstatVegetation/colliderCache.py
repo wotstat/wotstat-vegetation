@@ -36,14 +36,18 @@ class VegetationColliderCache(object):
     if assetKey in self._modelPathByAsset:
       return self._modelPathByAsset[assetKey]
 
-    density = self.densities.densityFor(normalizedAsset)
+    densityMetadata = self.densities.metadataFor(normalizedAsset)
+    density = densityMetadata['camouflageDensity']
     paths = colliderModelPaths(self.preferencesPath, self.version, normalizedAsset, density)
     texture = textureResourceForDensity(density)
 
     if _validColliderCache(paths, normalizedAsset, texture, self.logger):
       self.logger(
         'collider cache hit: asset=' + normalizedAsset +
-        ' density=' + str(density) +
+        ' camouflage_density=' + str(density) +
+        ' destructibles_density=' + str(densityMetadata['destructiblesDensity']) +
+        ' camouflage_affects=' + str(densityMetadata['camouflageAffects']) +
+        ' reason=' + str(densityMetadata['camouflageReason']) +
         ' model=' + paths['model']
       )
       self._modelPathByAsset[assetKey] = paths['model']
@@ -51,12 +55,15 @@ class VegetationColliderCache(object):
 
     self.logger(
       'collider cache miss: asset=' + normalizedAsset +
-      ' density=' + str(density) +
+      ' camouflage_density=' + str(density) +
+      ' destructibles_density=' + str(densityMetadata['destructiblesDensity']) +
+      ' camouflage_affects=' + str(densityMetadata['camouflageAffects']) +
+      ' reason=' + str(densityMetadata['camouflageReason']) +
       ' texture=' + texture
     )
 
     try:
-      modelPath = self._generateCollider(normalizedAsset, density, texture, paths)
+      modelPath = self._generateCollider(normalizedAsset, densityMetadata, texture, paths)
     except Exception as error:
       self.logger('failed to generate collider for ' + normalizedAsset + ': ' + str(error))
       self._modelPathByAsset[assetKey] = None
@@ -70,7 +77,7 @@ class VegetationColliderCache(object):
       mesh.triangles = [(a, c, b) for a, b, c in mesh.triangles]
     return meshes
 
-  def _generateCollider(self, assetPath, density, texture, paths):
+  def _generateCollider(self, assetPath, densityMetadata, texture, paths):
     data = _readResourceBinary(assetPath)
     geometry = parseSrtBinary(data, assetPath)
     meshes = geometry.collisionMeshes()
@@ -82,7 +89,12 @@ class VegetationColliderCache(object):
     ensureDir(paths['directory'])
     metadata = {
       'asset': assetPath,
-      'density': density,
+      'density': densityMetadata['camouflageDensity'],
+      'destructibles_density': densityMetadata['destructiblesDensity'],
+      'vegetation_list': densityMetadata['vegetationList'],
+      'camouflage_affects': densityMetadata['camouflageAffects'],
+      'camouflage_density': densityMetadata['camouflageDensity'],
+      'camouflage_reason': densityMetadata['camouflageReason'],
       'texture': texture,
       'lods': sorted(list(set([mesh.lod for mesh in meshes]))),
       'mesh_count': len(meshes)

@@ -7,7 +7,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from destructibles import load_vegetation_densities, resource_path_for
+from destructibles import vegetation_metadata
 from srt_collision import (
     bbox,
     combine_meshes,
@@ -44,16 +44,12 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         source = resolve_srt_path(args.packages, args.object)
-        densities = load_vegetation_densities(args.packages)
-        resource_path = resource_path_for(args.packages, source)
-        density = densities.get(resource_path)
-        metadata = {"density": density} if density is not None else {}
-
         srt = parse_srt(source)
         meshes = srt.collision_meshes(lod=args.lod, include_solid=args.include_solid)
         if not meshes:
             print(f"No COLLISION mesh found: {source.as_posix()}", file=sys.stderr)
             return 2
+        metadata = vegetation_metadata(args.packages, source, has_collision_mesh=bool(meshes))
 
         out = Path(args.out)
         if out.suffix.lower() == ".json":
@@ -68,8 +64,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"lods: {','.join(str(lod) for lod in lods)}")
         print(f"vertices: {len(vertices)}")
         print(f"triangles: {len(triangles)}")
-        if density is not None:
-            print(f"density: {density:g}")
+        if metadata["destructibles_density"] is not None:
+            print(f"destructibles_density: {metadata['destructibles_density']:g}")
+        print(f"vegetation_list: {metadata['vegetation_list']}")
+        print(f"camouflage_affects: {metadata['camouflage_affects']}")
+        if metadata["camouflage_density"] is not None:
+            print(f"camouflage_density: {metadata['camouflage_density']:g}")
+        print(f"camouflage_reason: {metadata['camouflage_reason']}")
         print(
             "bbox: "
             f"min=({mins[0]:.6g}, {mins[1]:.6g}, {mins[2]:.6g}) "

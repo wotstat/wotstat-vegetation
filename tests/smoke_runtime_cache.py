@@ -29,7 +29,12 @@ from wotstatVegetation.runtimeCache import (  # noqa: E402
 )
 from wotstatVegetation.wotModelExporter import exportColliderModel  # noqa: E402
 from wotstatVegetation.spaceBinUnpacker import _chunkIdForMatrix  # noqa: E402
-from wotstatVegetation.densityCache import _loadFromDataSection, _loadFromText  # noqa: E402
+from wotstatVegetation.densityCache import (  # noqa: E402
+  _loadFromDataSection,
+  _loadFromText,
+  _loadNameListFromText,
+  camouflageMetadataFor
+)
 
 
 def check(condition, message):
@@ -116,6 +121,49 @@ def main():
     sectionDensities = _loadFromDataSection(dataSection)
     check(sectionDensities['vegetation/broadleaves/shrubs/bush_wild/bush_wild_5m.srt'] == 0.25, 'section density with srt key')
     check(sectionDensities['vegetation/broadleaves/shrubs/bush_wild/bush_wild_5m'] == 0.25, 'section density stem key')
+
+    nameList = _loadNameListFromText('''
+      <root>
+        <Bush_Wild_5m/>
+        <Pine_Young_almoust_2m/>
+      </root>
+    ''')
+    check('bush_wild_5m' in nameList, 'vegetation list name parsed')
+    check('pine_young_almoust_2m' in nameList, 'vegetation list mixed case parsed')
+    check('root' not in nameList, 'vegetation list root ignored')
+
+    vegetationLists = {
+      'bushes': set(['bush_wild_5m']),
+      'grassBushes': set(['pine_young_almoust_2m'])
+    }
+    grassMetadata = camouflageMetadataFor(
+      'vegetation/Conifers/Pine_Young/Pine_Young_almoust_2m.srt',
+      {
+        'vegetation/conifers/pine_young/pine_young_almoust_2m.srt': 0.5,
+        'vegetation/conifers/pine_young/pine_young_almoust_2m': 0.5
+      },
+      vegetationLists
+    )
+    check(grassMetadata['destructiblesDensity'] == 0.5, 'grass bush keeps raw destructibles density')
+    check(grassMetadata['camouflageAffects'] is False, 'grass bush does not affect camouflage')
+    check(grassMetadata['camouflageDensity'] == 0.0, 'grass bush effective camouflage density is zero')
+    check(densityVariant(grassMetadata['camouflageDensity']) == 'red', 'grass bush renders red')
+
+    bushMetadata = camouflageMetadataFor(
+      'vegetation/Broadleaves/Shrubs/Bush_Wild/Bush_Wild_5m.srt',
+      sectionDensities,
+      vegetationLists
+    )
+    check(bushMetadata['camouflageAffects'] is True, 'bush with density affects camouflage')
+    check(bushMetadata['camouflageDensity'] == 0.25, 'bush uses destructibles density as camouflage density')
+
+    unknownMetadata = camouflageMetadataFor(
+      'vegetation/Broadleaves/Unknown/Unknown_5m.srt',
+      {},
+      vegetationLists
+    )
+    check(unknownMetadata['camouflageAffects'] is None, 'missing density camouflage is unknown')
+    check(unknownMetadata['camouflageDensity'] is None, 'missing density effective density is unknown')
 
     asset = 'vegetation/Broadleaves/Oak_dry/Oak_dry_20m.srt'
     greenKey = colliderCacheKey(asset, 0.5)

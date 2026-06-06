@@ -30,6 +30,59 @@ def load_vegetation_densities(packages: str | Path) -> dict[str, float]:
     return densities
 
 
+def load_vegetation_lists(packages: str | Path) -> dict[str, set[str]]:
+    vegetation = Path(packages) / "vegetation"
+    return {
+        "bushes": _load_name_list(vegetation / "bushes.xml"),
+        "grassBushes": _load_name_list(vegetation / "grassBushes.xml"),
+    }
+
+
+def vegetation_metadata(
+    packages: str | Path,
+    source_path: str | Path,
+    has_collision_mesh: bool,
+) -> dict:
+    densities = load_vegetation_densities(packages)
+    vegetation_lists = load_vegetation_lists(packages)
+    resource_path = resource_path_for(packages, source_path)
+    stem = Path(resource_path).stem.lower()
+    density = densities.get(resource_path)
+
+    if stem in vegetation_lists["grassBushes"]:
+        vegetation_list = "grassBushes"
+        camouflage_affects = False
+        reason = "listed_in_grassBushes"
+    elif stem in vegetation_lists["bushes"]:
+        vegetation_list = "bushes"
+        camouflage_affects = bool(has_collision_mesh and density is not None)
+        reason = "listed_in_bushes" if camouflage_affects else "missing_collision_or_density"
+    else:
+        vegetation_list = "unlisted"
+        if has_collision_mesh and density is not None:
+            camouflage_affects = True
+            reason = "collision_mesh_with_destructibles_density"
+        else:
+            camouflage_affects = None
+            reason = "not_enough_metadata"
+
+    if camouflage_affects is True:
+        camouflage_density = density
+    elif camouflage_affects is False:
+        camouflage_density = 0.0
+    else:
+        camouflage_density = None
+
+    return {
+        "resource_path": resource_path,
+        "vegetation_list": vegetation_list,
+        "destructibles_density": density,
+        "camouflage_affects": camouflage_affects,
+        "camouflage_density": camouflage_density,
+        "camouflage_reason": reason,
+    }
+
+
 def resource_path_for(packages: str | Path, source_path: str | Path) -> str:
     packages_path = Path(packages).resolve()
     source = Path(source_path).resolve()
@@ -54,3 +107,13 @@ def _normalize_resource_path(value: str) -> str:
         value = value[len("packages/") :]
     return value.lower()
 
+
+def _load_name_list(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    text = path.read_text(encoding="utf-8", errors="replace")
+    return {
+        match.group(1).lower()
+        for match in re.finditer(r"<([^!?/][^/>\s]*)\s*/>", text)
+        if match.group(1) != "root"
+    }
