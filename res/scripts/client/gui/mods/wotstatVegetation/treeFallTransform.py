@@ -1,7 +1,5 @@
 import math
-
-GRAVITY = 9.81
-
+import physics_shared
 
 def fallenTreePitch(fallPitchConstr, fallback=None, allowZero=False):
   if fallback is None:
@@ -33,7 +31,7 @@ def solvedRestingTreePose(standingMatrixRows, fallPitchConstr, fallingParams, so
   heightScaled = height * scale
   massScaled = mass * scale * scale * scale
   stiffnessScaled = springStiffness * scale * scale
-  weight = GRAVITY * massScaled
+  weight = physics_shared.G * massScaled
   angStiffness = 0.5 * heightScaled * stiffnessScaled
   approxPitch = pitchConstr - 0.5 * springAngle
   finalPitch = solvePitch(weight, angStiffness, pitchConstr - springAngle, approxPitch)

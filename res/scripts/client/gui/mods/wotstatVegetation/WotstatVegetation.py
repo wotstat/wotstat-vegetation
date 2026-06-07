@@ -1,26 +1,21 @@
 import BigWorld
-import DestructiblesCache
 import Math
-
+import DestructiblesCache
+import AreaDestructibles
 from PlayerEvents import g_playerEvents
-from . import bigworldCompat
-
-from AreaDestructibles import g_destructiblesManager
-
-from .colliderCache import VegetationColliderCache
-from .logger import log
-from .mapCache import loadMapVegetation
-from .runtimeCache import densityVariant, normalizeResourcePathForKey
-from .treeFallRuntime import (
-  registerTreeFallHandler,
-  unregisterTreeFallHandler
-)
-from .treeFallTransform import fallenTreeMatrixRows, solvedRestingTreePose
-from .visibility_mask import currentVisibilityMask, filterVegetationByVisibility
 from adisp import adisp_process
 from shared_utils import awaitNextFrame
 from helpers.CallbackDelayer import CallbackDelayer
 from helpers import isPlayerAvatar
+
+from . import BigWorldCompat
+from .colliderCache import VegetationColliderCache
+from .logger import log
+from .mapCache import loadMapVegetation
+from .runtimeCache import densityVariant
+from .treeFallRuntime import registerTreeFallHandler, unregisterTreeFallHandler
+from .treeFallTransform import fallenTreeMatrixRows, solvedRestingTreePose
+from .visibilityMask import currentVisibilityMask, filterVegetationByVisibility
 
 from gui.debugUtils import ui, gizmos, drawer
 
@@ -126,7 +121,7 @@ class WotstatVegetation(CallbackDelayer):
     log('arena runtime state reset: ' + str(reason))
 
   def getColliderCache(self):
-    preferencesPath = bigworldCompat.getPreferencesFilePath()
+    preferencesPath = BigWorldCompat.getPreferencesFilePath()
     if self.colliderCache is None or self.colliderCache.preferencesPath != preferencesPath:
       self.colliderCache = VegetationColliderCache(preferencesPath, VERSION)
     return self.colliderCache
@@ -134,7 +129,7 @@ class WotstatVegetation(CallbackDelayer):
   def loadMapFromSpaceBin(self, mapName):
     if self.vegetationDataArena == mapName: return
 
-    vegetation = loadMapVegetation(mapName, bigworldCompat.getPreferencesFilePath(), VERSION)
+    vegetation = loadMapVegetation(mapName, BigWorldCompat.getPreferencesFilePath(), VERSION)
     if vegetation is None:
       self.vegetationData = []
       self.visibleVegetationData = []
@@ -174,13 +169,13 @@ class WotstatVegetation(CallbackDelayer):
     vegetation = self.visibleVegetationData if self.visibilityFilterApplied else self.vegetationData
     for v in vegetation:
       asset = v['asset']
-      assetKey = normalizeResourcePathForKey(asset)
+      assetKey = asset.lower()
 
       if assetKey in failedAssets:
         continue
 
       if assetKey not in densityMetadataByAsset:
-        densityMetadataByAsset[assetKey] = colliderCache.densityMetadataFor(asset)
+        densityMetadataByAsset[assetKey] = colliderCache.densities.metadataFor(asset)
       densityMetadata = densityMetadataByAsset[assetKey]
       if self.onlyCamouflable and densityVariant(densityMetadata.get('camouflageDensity')) == 'red':
         skippedRed += 1
@@ -270,7 +265,7 @@ class WotstatVegetation(CallbackDelayer):
       chunks[chunkID] = True
 
     for chunkID in chunks.keys():
-      controller = g_destructiblesManager.getController(chunkID)
+      controller = AreaDestructibles.g_destructiblesManager.getController(chunkID)
       if controller is None:
         continue
       chunksChecked += 1
@@ -298,21 +293,21 @@ class WotstatVegetation(CallbackDelayer):
     if self.treeColliderStates.get(key) == state:
       return False
 
-    spaceID = g_destructiblesManager.getSpaceID()
-    if bigworldCompat.checkDestructibleIsBush(spaceID, key[0], key[1]):
+    spaceID = AreaDestructibles.g_destructiblesManager.getSpaceID()
+    if BigWorldCompat.checkDestructibleIsBush(spaceID, key[0], key[1]):
       self.treeColliderStates[key] = state
       return False
 
     updated = 0
     finalPitchLog = None
     buryDepthLog = None
-    fallingParams = bigworldCompat.getFallingParams(spaceID, key[0], key[1])
+    fallingParams = BigWorldCompat.getFallingParams(spaceID, key[0], key[1])
     for instance in instances:
       finalPitch, buryDepth = solvedRestingTreePose(
         instance['standingMatrixRows'],
         fallPitchConstr,
         fallingParams,
-        bigworldCompat.solveDestructibleFallPitch
+        BigWorldCompat.solveDestructibleFallPitch
       )
       if finalPitch is not None:
         finalPitchLog = finalPitch
@@ -328,13 +323,6 @@ class WotstatVegetation(CallbackDelayer):
       updated += 1
 
     self.treeColliderStates[key] = state
-    log(
-      'updated fallen tree collider transform: ' + self.treeIDText(key) +
-      ' models=' + str(updated) +
-      ' yaw=' + str(fallYaw) +
-      ' final_pitch=' + str(finalPitchLog) +
-      ' bury_depth=' + str(buryDepthLog)
-    )
     return True
 
   def setColliderTransform(self, instance, matrixRows):

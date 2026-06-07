@@ -14,12 +14,6 @@ YELLOW_TEXTURE = 'mods/wotstat-vegetation/yellow.dds'
 RED_TEXTURE = 'mods/wotstat-vegetation/red.dds'
 
 
-try:
-  string_types = (basestring,)
-except NameError:
-  string_types = (str,)
-
-
 def cacheVersion(version):
   value = str(version or '').strip()
   if not value or value.startswith('{{'):
@@ -65,39 +59,6 @@ def ensureDir(path):
     os.makedirs(path)
 
 
-def normalizeResourcePath(value):
-  if value is None:
-    return ''
-  if not isinstance(value, string_types):
-    value = str(value)
-  value = value.strip().replace('\\', '/')
-  while value.startswith('./'):
-    value = value[2:]
-  if value.startswith('/'):
-    value = value[1:]
-  if value.lower().startswith('packages/'):
-    value = value[len('packages/'):]
-  return '/'.join([part for part in value.split('/') if part])
-
-
-def normalizeResourcePathForKey(value):
-  return normalizeResourcePath(value).lower()
-
-
-def ensureSrtExtension(value):
-  value = normalizeResourcePath(value)
-  if value and not value.lower().endswith('.srt'):
-    value += '.srt'
-  return value
-
-
-def stripSrtExtension(value):
-  value = normalizeResourcePath(value)
-  if value.lower().endswith('.srt'):
-    return value[:-4]
-  return value
-
-
 def densityVariant(density):
   try:
     value = float(density)
@@ -120,7 +81,7 @@ def textureResourceForDensity(density):
 
 
 def stableDigest(value, length=16):
-  if not isinstance(value, string_types):
+  if not isinstance(value, basestring):
     value = str(value)
   if not isinstance(value, bytes):
     value = value.encode('utf-8')
@@ -128,16 +89,14 @@ def stableDigest(value, length=16):
 
 
 def safeName(value, fallback='item'):
-  value = normalizeResourcePath(value)
-  if not value:
-    return fallback
-  name = os.path.splitext(value.replace('\\', '/').split('/')[-1])[0]
+  value = str(value)
+  name = os.path.splitext(value.rsplit('/', 1)[-1])[0]
   name = re.sub(r'[^A-Za-z0-9._-]+', '_', name).strip('._-')
   return name or fallback
 
 
 def colliderCacheKey(assetPath, density):
-  normalized = normalizeResourcePathForKey(ensureSrtExtension(assetPath))
+  normalized = assetPath.lower()
   variant = densityVariant(density)
   material = textureResourceForDensity(density)
   digest = stableDigest(
@@ -167,7 +126,7 @@ def colliderModelPaths(preferencesPath, version, assetPath, density):
 
 def mapCachePath(preferencesPath, version, arenaName):
   roots = cachePaths(preferencesPath, version)
-  normalized = normalizeResourcePathForKey(arenaName)
+  normalized = arenaName.lower()
   name = safeName(normalized, 'map')
   return os.path.join(
     roots['maps'],
@@ -195,43 +154,3 @@ def validColliderFiles(paths):
     if not os.path.isfile(paths[key]) or os.path.getsize(paths[key]) <= 0:
       return False
   return True
-
-
-def mapPayloadInvalidReason(payload, arenaName):
-  if not isinstance(payload, dict):
-    return 'payload is not an object'
-  if payload.get('arena') != arenaName:
-    return 'arena mismatch'
-  if payload.get('mapCacheFormatVersion') != MAP_CACHE_FORMAT_VERSION:
-    return 'cache version mismatch'
-  vegetation = payload.get('vegetation')
-  if not isinstance(vegetation, list):
-    return 'vegetation is not a list'
-  for entry in vegetation:
-    if not isinstance(entry, dict):
-      return 'vegetation entry is not an object'
-    if not entry.get('asset'):
-      return 'vegetation entry missing asset'
-    if 'visibilityMask' not in entry:
-      return 'vegetation entry missing visibilityMask'
-    try:
-      int(entry.get('visibilityMask'))
-    except Exception:
-      return 'vegetation entry has invalid visibilityMask'
-    matrix = entry.get('matrix')
-    if not isinstance(matrix, list) or len(matrix) != 4:
-      return 'vegetation entry has invalid matrix'
-    for row in matrix:
-      if not isinstance(row, list) or len(row) != 4:
-        return 'vegetation entry has invalid matrix row'
-    for derivedKey in (
-      'gameModes',
-      'possibleModes',
-      'modeNames',
-      'guessedModes',
-      'visibilityMaskMeaning',
-      'modeVisibility'
-    ):
-      if derivedKey in entry:
-        return 'vegetation entry contains derived visibility field ' + derivedKey
-  return None

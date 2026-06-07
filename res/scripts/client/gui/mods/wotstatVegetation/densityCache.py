@@ -1,6 +1,5 @@
 import ResMgr
 
-from .runtimeCache import ensureSrtExtension, normalizeResourcePathForKey, stripSrtExtension
 from .logger import log
 
 
@@ -41,7 +40,7 @@ class VegetationDensityCache(object):
     if not densities:
       log('destructibles.xml not found or unreadable, vegetation density is unknown')
     else:
-      log('loaded vegetation densities: assets=' + str(len(densities) // 2))
+      log('loaded vegetation densities: assets=' + str(len(densities)))
 
     return densities
 
@@ -67,17 +66,13 @@ class VegetationDensityCache(object):
     return result
 
 
-def camouflageMetadataFor(assetPath, densities, vegetationLists, hasCollisionMesh=True):
-  normalized = normalizeResourcePathForKey(assetPath)
-  withoutSrt = normalizeResourcePathForKey(stripSrtExtension(assetPath))
-  if normalized in densities:
-    destructiblesDensity = densities[normalized]
-  else:
-    destructiblesDensity = densities.get(withoutSrt)
+def camouflageMetadataFor(assetPath, densities, vegetationLists):
+  normalized = assetPath.lower()
+  destructiblesDensity = densities.get(normalized)
 
-  stem = _resourceStem(assetPath)
-  bushes = vegetationLists.get('bushes', set())
-  grassBushes = vegetationLists.get('grassBushes', set())
+  stem = assetPath.rsplit('/', 1)[-1].rsplit('.', 1)[0].lower()
+  bushes = vegetationLists['bushes']
+  grassBushes = vegetationLists['grassBushes']
 
   if stem in grassBushes:
     vegetationList = 'grassBushes'
@@ -85,11 +80,11 @@ def camouflageMetadataFor(assetPath, densities, vegetationLists, hasCollisionMes
     camouflageReason = 'listed_in_grassBushes'
   elif stem in bushes:
     vegetationList = 'bushes'
-    camouflageAffects = bool(hasCollisionMesh and destructiblesDensity is not None)
+    camouflageAffects = destructiblesDensity is not None
     camouflageReason = 'listed_in_bushes' if camouflageAffects else 'missing_collision_or_density'
   else:
     vegetationList = 'unlisted'
-    if hasCollisionMesh and destructiblesDensity is not None:
+    if destructiblesDensity is not None:
       camouflageAffects = True
       camouflageReason = 'collision_mesh_with_destructibles_density'
     else:
@@ -136,14 +131,6 @@ def _collectNameListChildren(section, names):
     _collectNameListChildren(child, names)
 
 
-def _resourceStem(assetPath):
-  value = stripSrtExtension(assetPath)
-  if not value:
-    return ''
-  value = value.replace('\\', '/')
-  return value.rsplit('/', 1)[-1].lower()
-
-
 def _walkEntries(section, densities):
   filename = section.readString('filename', '')
   density = section.readString('density', '')
@@ -155,16 +142,8 @@ def _walkEntries(section, densities):
 
 
 def _addDensity(densities, filename, density):
-  if not filename or density is None:
-    return
-
-  normalized = normalizeResourcePathForKey(filename)
+  normalized = filename.lower()
   if not normalized.startswith('vegetation/'):
     return
 
-  value = float(density)
-
-  withSrt = normalizeResourcePathForKey(ensureSrtExtension(normalized))
-  withoutSrt = normalizeResourcePathForKey(stripSrtExtension(normalized))
-  densities[withSrt] = value
-  densities[withoutSrt] = value
+  densities[normalized] = float(density)

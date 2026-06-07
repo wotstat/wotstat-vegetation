@@ -1,18 +1,14 @@
 import ResMgr
 
 from .spaceBinUnpacker import SpaceBinUnpackError, unpackVegetationFromSpaceBin
-from .runtimeCache import (
-  MAP_CACHE_FORMAT_VERSION,
-  mapPayloadInvalidReason,
-  mapCachePath,
-  normalizeResourcePathForKey,
-  readJson,
-  writeJson
-)
+from .runtimeCache import MAP_CACHE_FORMAT_VERSION, mapCachePath, readJson, writeJson
+
 from .logger import log
 
 
 def loadMapVegetation(arenaName, preferencesPath, version):
+  log('load map vegetation: map=' + arenaName)
+  
   spacePath = 'spaces/' + arenaName + '/space.bin'
   cachePath = mapCachePath(preferencesPath, version, arenaName)
 
@@ -39,7 +35,7 @@ def loadMapVegetation(arenaName, preferencesPath, version):
       'vegetation': vegetation
     })
 
-  uniqueAssets = set([normalizeResourcePathForKey(entry['asset']) for entry in vegetation])
+  uniqueAssets = set([entry['asset'].lower() for entry in vegetation])
   log(
     'loaded map vegetation: map=' + arenaName +
     ' count=' + str(len(vegetation)) +
@@ -50,16 +46,9 @@ def loadMapVegetation(arenaName, preferencesPath, version):
 
 def _readCachedMap(cachePath, arenaName):
   try:
-    payload = readJson(cachePath)
+    return readJson(cachePath)
   except IOError:
     return None
   except Exception as error:
     log('map cache corrupt, regenerating ' + cachePath + ': ' + str(error))
     return None
-
-  invalidReason = mapPayloadInvalidReason(payload, arenaName)
-  if invalidReason is not None:
-    log('map cache invalid, regenerating: ' + cachePath + ' reason=' + invalidReason)
-    return None
-
-  return payload

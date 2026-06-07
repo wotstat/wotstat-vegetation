@@ -6,9 +6,6 @@ from .densityCache import VegetationDensityCache
 from .runtimeCache import (
   colliderModelPaths,
   ensureDir,
-  ensureSrtExtension,
-  normalizeResourcePath,
-  normalizeResourcePathForKey,
   readJson,
   textureResourceForDensity,
   validColliderFiles,
@@ -32,42 +29,35 @@ class VegetationColliderCache(object):
     self._modelPathByAsset = {}
 
   def ensureColliderModel(self, assetPath):
-    assetPath = ensureSrtExtension(assetPath)
-    normalizedAsset = normalizeResourcePath(assetPath)
-    assetKey = normalizeResourcePathForKey(assetPath)
+    assetKey = assetPath.lower()
 
     if assetKey in self._modelPathByAsset:
       return self._modelPathByAsset[assetKey]
 
-    densityMetadata = self.densityMetadataFor(normalizedAsset)
+    densityMetadata = self.densities.metadataFor(assetPath)
     density = densityMetadata['camouflageDensity']
-    paths = colliderModelPaths(self.preferencesPath, self.version, normalizedAsset, density)
+    paths = colliderModelPaths(self.preferencesPath, self.version, assetPath, density)
     texture = textureResourceForDensity(density)
 
-    if _noColliderCacheHit(paths, normalizedAsset, texture):
+    if _noColliderCacheHit(paths, assetPath, texture):
       self._modelPathByAsset[assetKey] = None
       return None
 
-    if _validColliderCache(paths, normalizedAsset, texture):
+    if _validColliderCache(paths, assetPath, texture):
       self._modelPathByAsset[assetKey] = paths['model']
       return paths['model']
 
     try:
-      modelPath = self._generateCollider(normalizedAsset, densityMetadata, texture, paths)
+      modelPath = self._generateCollider(assetPath, densityMetadata, texture, paths)
     except ValueError as error:
       if str(error) != NO_COLLIDER_REASON:
         raise
-      _writeNoColliderCache(paths, normalizedAsset, densityMetadata, texture, str(error))
+      _writeNoColliderCache(paths, assetPath, densityMetadata, texture, str(error))
       self._modelPathByAsset[assetKey] = None
       return None
 
     self._modelPathByAsset[assetKey] = modelPath
     return modelPath
-
-  def densityMetadataFor(self, assetPath):
-    assetPath = ensureSrtExtension(assetPath)
-    normalizedAsset = normalizeResourcePath(assetPath)
-    return self.densities.metadataFor(normalizedAsset)
 
   def _generateCollider(self, assetPath, densityMetadata, texture, paths):
     if not ResMgr.isFile(assetPath):
