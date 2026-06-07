@@ -7,7 +7,7 @@ A mod for displaying vegetation colliders used in the concealment system. It all
 > [!NOTE]
 > The mod works only in `Replays` and `Training Battles`. In competitive modes — Random, Clan, and Team Battles — the mod will not work.
 
-![Demo](.github/assets/demo-1.png)
+![Demo](.github/assets/demo-1.jpeg)
 
 ## Installation
 
@@ -35,14 +35,14 @@ Open the mod menu (`F2`) and find the `Vegetation` section. There you can contro
 
 ![Settings window](.github/assets/debug-utils-integration-en.png)
 
-![Markers](.github/assets/vegetation-positoins.png)
+![Markers](.github/assets/vegetation-positoins.jpeg)
 
 ## Examples
 
-![Demo](.github/assets/demo-2.png)
+![Demo](.github/assets/demo-2.jpeg)
 
-![Demo](.github/assets/demo-4.png)
+![Demo](.github/assets/demo-4.jpeg)
 
-![Demo](.github/assets/demo-3.png)
+![Demo](.github/assets/demo-3.jpeg)
 
-![Demo](.github/assets/demo-5.png)
+![Demo](.github/assets/demo-5.jpeg)

@@ -8,7 +8,7 @@
 > Мод работает только в `Реплеях` и `Тренировочных боях`. В соревновательных режимах (Случайные, Клановые, Командные бои) мод не будет работать.
 
 
-![Demo](.github/assets/demo-1.png)
+![Demo](.github/assets/demo-1.jpeg)
 
 ## Установка
 1. Скачайте файл мода [`wotstat.vegetation_1.0.0.mtmod`](https://github.com/wotstat/wotstat-vegetation/releases/latest).
@@ -32,14 +32,14 @@
 
 ![Окно с настройками](.github/assets/debug-utils-integration-ru.png)
 
-![Markers](.github/assets/vegetation-positoins.png)
+![Markers](.github/assets/vegetation-positoins.jpeg)
 
 ## Примеры 
 
-![Demo](.github/assets/demo-2.png)
+![Demo](.github/assets/demo-2.jpeg)
 
-![Demo](.github/assets/demo-4.png)
+![Demo](.github/assets/demo-4.jpeg)
 
-![Demo](.github/assets/demo-3.png)
+![Demo](.github/assets/demo-3.jpeg)
 
-![Demo](.github/assets/demo-5.png)
+![Demo](.github/assets/demo-5.jpeg)
