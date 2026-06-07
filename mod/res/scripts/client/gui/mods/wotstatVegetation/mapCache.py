@@ -32,7 +32,7 @@ def loadMapVegetation(arenaName, preferencesPath, version, logger=None):
 
   try:
     section = ResMgr.openSection(spacePath)
-    vegetation = unpackVegetationFromSpaceBin(section.asBinary)
+    vegetation = unpackVegetationFromSpaceBin(section.asBinary, debug=logger)
   except Exception as error:
     logger('failed to parse space.bin for ' + arenaName + ': ' + str(error))
     return None

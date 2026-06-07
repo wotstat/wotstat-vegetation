@@ -13,6 +13,23 @@ WGDE_SPAN_ENTRY_SIZE = 8
 WGDE_OBJECT_ENTRY_SIZE = 4
 WGDE_SPEEDTREE_OBJECT_FLAG = 0x80000000
 WGDE_SPEEDTREE_INDEX_MASK = 0x7fffffff
+WGDE_EMPTY_OBJECT_INDEX = 0xffffffff
+SPACE_BIN_FORMAT_LESTA = 'lesta'
+SPACE_BIN_FORMAT_WG = 'wg'
+SPACE_BIN_FORMAT_SIGNATURES = {
+  SPACE_BIN_FORMAT_LESTA: {
+    b'BSMA': 20,
+    b'WTCP': 136,
+    b'BWWa': 464,
+    b'BWLC': 116
+  },
+  SPACE_BIN_FORMAT_WG: {
+    b'BSMA': 16,
+    b'WTCP': 124,
+    b'BWWa': 340,
+    b'BWLC': 136
+  }
+}
 
 
 class SpaceBinUnpackError(Exception):
@@ -22,8 +39,15 @@ def _isFinite(value):
     return math.isfinite(value)
   return value == value and value != float('inf') and value != float('-inf')
 
-def unpackVegetationFromSpaceBin(binary):
+def unpackVegetationFromSpaceBin(binary, debug=False):
   sections = _parseSectionTable(binary)
+  spaceFormat = _detectSpaceBinFormat(binary, sections)
+  _debugLog(
+    debug,
+    'space.bin format: ' + spaceFormat['name'] +
+    ' markers=' + _formatMarkerSummary(spaceFormat['markers'])
+  )
+
   assets = _parseAssetsByKey(_sectionData(binary, sections, b'BWST'))
   records = _parseSptr(_sectionData(binary, sections, b'SpTr'))
   terrainGrid = _parseTerrainGrid(_sectionDataOptional(binary, sections, b'BWT2'))
@@ -48,6 +72,70 @@ def unpackVegetationFromSpaceBin(binary):
       })
 
   return vegetation
+
+
+def detectSpaceBinFormat(binary):
+  sections = _parseSectionTable(binary)
+  return _detectSpaceBinFormat(binary, sections)['name']
+
+
+def _detectSpaceBinFormat(data, sections):
+  markers = {}
+  sectionById = _sectionsById(sections)
+
+  for sectionId in _formatSignatureSectionIds():
+    section = sectionById.get(sectionId)
+    if section is None:
+      raise SpaceBinUnpackError(
+        'unsupported space.bin format: marker section ' +
+        _sectionIdToString(sectionId) + ' not found'
+      )
+
+    markers[sectionId] = _readU32AtAbsoluteOffset(
+      data,
+      section['offset'],
+      'format marker ' + _sectionIdToString(sectionId)
+    )
+
+  matches = []
+  for formatName, signature in SPACE_BIN_FORMAT_SIGNATURES.items():
+    matched = True
+    for sectionId, expected in signature.items():
+      if markers.get(sectionId) != expected:
+        matched = False
+        break
+    if matched:
+      matches.append(formatName)
+
+  if len(matches) == 1:
+    return {
+      'name': matches[0],
+      'markers': markers
+    }
+
+  expectedText = []
+  for formatName, signature in SPACE_BIN_FORMAT_SIGNATURES.items():
+    expectedText.append(formatName + '=' + _formatMarkerSummary(signature))
+
+  raise SpaceBinUnpackError(
+    'unsupported space.bin format markers: got ' +
+    _formatMarkerSummary(markers) +
+    '; expected one of ' + '; '.join(expectedText)
+  )
+
+
+def _formatSignatureSectionIds():
+  seen = []
+  for signature in SPACE_BIN_FORMAT_SIGNATURES.values():
+    for sectionId in signature:
+      if sectionId not in seen:
+        seen.append(sectionId)
+
+  return seen
+
+
+def _sectionsById(sections):
+  return dict((section['id'], section) for section in sections)
 
 
 def _parseSectionTable(data):
@@ -227,6 +315,10 @@ def _parseSpeedtreeDestrIndices(section, records, terrainGrid):
       objectValues = []
 
       for objectIndex in objectIndexes:
+        if objectIndex == WGDE_EMPTY_OBJECT_INDEX:
+          objectValues.append(None)
+          continue
+
         if objectIndex >= objectTable['count']:
           raise SpaceBinUnpackError(
             'WGDE object index out of bounds: chunk_index=' + str(chunkIndex) +
@@ -238,6 +330,9 @@ def _parseSpeedtreeDestrIndices(section, records, terrainGrid):
 
       speedtreeIndexes = []
       for value in objectValues:
+        if value is None:
+          continue
+
         if value & WGDE_SPEEDTREE_OBJECT_FLAG == 0:
           continue
 
@@ -352,8 +447,31 @@ def _readF32(data, offset):
   return struct.unpack_from('<f', data, offset)[0]
 
 
+def _readU32AtAbsoluteOffset(data, offset, label):
+  _checkBounds(data, offset, 4, label)
+  return struct.unpack_from('<I', data, offset)[0]
+
+
 def _sectionIdToString(sectionId):
   return sectionId.decode('ascii', 'replace')
+
+
+def _formatMarkerSummary(markers):
+  parts = []
+  for sectionId in sorted(markers):
+    parts.append(_sectionIdToString(sectionId) + '=' + str(markers[sectionId]))
+
+  return '{' + ', '.join(parts) + '}'
+
+
+def _debugLog(debug, message):
+  if not debug:
+    return
+
+  if callable(debug):
+    debug(message)
+  else:
+    print(message)
 
 
 def _checkBounds(data, offset, size, label):

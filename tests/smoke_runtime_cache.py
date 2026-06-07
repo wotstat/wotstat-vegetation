@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import shutil
+import struct
 import sys
 import tempfile
 import types
@@ -28,7 +29,18 @@ from wotstatVegetation.runtimeCache import (  # noqa: E402
   writeJson
 )
 from wotstatVegetation.wotModelExporter import exportColliderModel  # noqa: E402
-from wotstatVegetation.spaceBinUnpacker import _chunkIdForMatrix  # noqa: E402
+from wotstatVegetation.spaceBinUnpacker import (  # noqa: E402
+  SPACE_BIN_FORMAT_LESTA,
+  SPACE_BIN_FORMAT_SIGNATURES,
+  SPACE_BIN_FORMAT_WG,
+  WGDE_EMPTY_OBJECT_INDEX,
+  WGDE_OBJECT_ENTRY_SIZE,
+  WGDE_SPEEDTREE_OBJECT_FLAG,
+  _chunkIdForMatrix,
+  _parseSpeedtreeDestrIndices,
+  detectSpaceBinFormat,
+  unpackVegetationFromSpaceBin
+)
 import wotstatVegetation.colliderCache as colliderCacheModule  # noqa: E402
 from wotstatVegetation.colliderCache import VegetationColliderCache  # noqa: E402
 from wotstatVegetation.densityCache import (  # noqa: E402
@@ -88,6 +100,84 @@ class FakeSrtGeometryWithoutCollision(object):
 
   def collisionMeshes(self):
     return []
+
+
+def _packSectionMeta(sectionId, offset, length, rowsCount=0):
+  return (
+    sectionId +
+    struct.pack('<I', 0) +
+    struct.pack('<I', offset) +
+    struct.pack('<I', 0) +
+    struct.pack('<I', length) +
+    struct.pack('<I', rowsCount)
+  )
+
+
+def _buildTinySpaceBin(formatName):
+  asset = b'vegetation/Test/TestTree.srt\x00'
+  bwst = (
+    struct.pack('<II', 12, 1) +
+    struct.pack('<III', 42, 0, len(asset)) +
+    struct.pack('<I', len(asset)) +
+    asset
+  )
+  matrix = [
+    1.0, 0.0, 0.0, 0.0,
+    0.0, 1.0, 0.0, 0.0,
+    0.0, 0.0, 1.0, 0.0,
+    10.0, 0.0, 20.0, 1.0
+  ]
+  sptr = (
+    struct.pack('<II', 80, 1) +
+    struct.pack('<16f', *matrix) +
+    struct.pack('<IIII', 42, 0, 0, 3)
+  )
+  sections = []
+  for sectionId, marker in SPACE_BIN_FORMAT_SIGNATURES[formatName].items():
+    sections.append((sectionId, struct.pack('<I', marker)))
+  sections.append((b'BWST', bwst))
+  sections.append((b'SpTr', sptr))
+
+  sectionMetas = []
+  payloads = []
+  offset = 24 * (len(sections) + 1)
+  for sectionId, payload in sections:
+    sectionMetas.append(_packSectionMeta(sectionId, offset, len(payload)))
+    payloads.append(payload)
+    offset += len(payload)
+
+  return (
+    _packSectionMeta(b'BWTB', 0, 0, len(sections)) +
+    b''.join(sectionMetas) +
+    b''.join(payloads)
+  )
+
+
+def _speedtreeRecords():
+  matrix = [
+    [1.0, 0.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0, 0.0],
+    [0.0, 0.0, 1.0, 0.0],
+    [0.0, 0.0, 0.0, 1.0]
+  ]
+  return [{'matrix': matrix}]
+
+
+def _wgdeWithEmptyObjectIndex():
+  speedtreeValue = WGDE_SPEEDTREE_OBJECT_FLAG | 0
+  chunkTable = (
+    struct.pack('<II', 12, 1) +
+    struct.pack('<III', 1, 0, 1)
+  )
+  spanTable = (
+    struct.pack('<II', 8, 1) +
+    struct.pack('<II', WGDE_EMPTY_OBJECT_INDEX, 0)
+  )
+  objectTable = (
+    struct.pack('<II', WGDE_OBJECT_ENTRY_SIZE, 1) +
+    struct.pack('<I', speedtreeValue)
+  )
+  return chunkTable + spanTable + objectTable
 
 
 def main():
@@ -235,6 +325,25 @@ def main():
       payload['vegetation'][0]['matrix']
     )
     check(isinstance(chunkID, int), 'chunk id is integer')
+
+    for formatName in (SPACE_BIN_FORMAT_LESTA, SPACE_BIN_FORMAT_WG):
+      spaceBin = _buildTinySpaceBin(formatName)
+      check(detectSpaceBinFormat(spaceBin) == formatName, 'space.bin format detected: ' + formatName)
+      logs = []
+      vegetation = unpackVegetationFromSpaceBin(spaceBin, debug=logs.append)
+      check(len(vegetation) == 1, 'space.bin vegetation parsed: ' + formatName)
+      check(vegetation[0]['asset'] == 'vegetation/Test/TestTree.srt', 'space.bin asset parsed: ' + formatName)
+      check(vegetation[0]['visibilityMask'] == 3, 'space.bin raw visibility mask parsed: ' + formatName)
+      check('modeVisibility' not in vegetation[0], 'space.bin parser does not emit derived modes: ' + formatName)
+      check('sptrFlags' not in vegetation[0], 'space.bin parser does not cache sptr debug flags: ' + formatName)
+      check(logs and ('space.bin format: ' + formatName) in logs[0], 'space.bin format logged: ' + formatName)
+
+    destrIndices = _parseSpeedtreeDestrIndices(
+      _wgdeWithEmptyObjectIndex(),
+      _speedtreeRecords(),
+      None
+    )
+    check(destrIndices[0] == 0, 'WGDE empty object index is ignored')
 
     mesh = type('Mesh', (), {})()
     mesh.vertices = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)]
