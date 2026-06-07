@@ -2,7 +2,7 @@
 
 # WotStat Vegetation
 
-A mod for displaying vegetation colliders used in the concealment system. It allows you to study their placement, shape, and behavior, investigate "holes" in bushes, and understand unexpected spotting situations.
+A mod for displaying vegetation camouflage colliders used in the spotting system. It allows you to study their placement, shape, and behavior, investigate "holes" in bushes, and understand unexpected spotting situations.
 
 > [!NOTE]
 > The mod works only in `Replays` and `Training Battles`. In competitive modes — Random, Clan, and Team Battles — the mod will not work.
@@ -17,15 +17,15 @@ A mod for displaying vegetation colliders used in the concealment system. It all
 ## Usage
 
 * `F2` - Show/Hide vegetation colliders.
-* `F3` - Show/Hide only concealment colliders.
+* `F3` - Show/Hide only camouflage colliders.
 
 ### Collider Color Meaning
 
-The collider color depends on its concealment properties:
+The collider color depends on its camouflage properties:
 
-* `Green` - adds 50% concealment.
-* `Yellow` - adds 25% concealment; usually trees without foliage.
-* `Red` - the collider does not provide concealment, but still exists in the game; usually small trees or bushes that belong to the grass category.
+* `Green` - adds 50% camouflage.
+* `Yellow` - adds 25% camouflage; usually trees without foliage.
+* `Red` - the collider does not provide camouflage, but still exists in the game; usually small trees or bushes that belong to the grass category.
 
 ### Integration with wotstat-debug-utils
 
