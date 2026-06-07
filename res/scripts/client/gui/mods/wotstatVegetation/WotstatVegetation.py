@@ -1,5 +1,7 @@
 import BigWorld
 import Math
+import Keys
+
 import DestructiblesCache
 import AreaDestructibles
 from PlayerEvents import g_playerEvents
@@ -7,53 +9,36 @@ from adisp import adisp_process
 from shared_utils import awaitNextFrame
 from helpers.CallbackDelayer import CallbackDelayer
 from helpers import isPlayerAvatar
+from gui import InputHandler
+from gui.Scaleform.genConsts.BATTLE_MESSAGES_CONSTS import BATTLE_MESSAGES_CONSTS
+from constants import ARENA_GUI_TYPE
 
-from . import BigWorldCompat
-from .colliderCache import VegetationColliderCache
-from .logger import log
-from .mapCache import loadMapVegetation
-from .runtimeCache import densityVariant
-from .treeFallRuntime import registerTreeFallHandler, unregisterTreeFallHandler
-from .treeFallTransform import fallenTreeMatrixRows, solvedRestingTreePose
-from .visibilityMask import currentVisibilityMask, filterVegetationByVisibility
+from .utils.i18n import t
+from .utils.logger import log
+from .utils import BigWorldCompat
+from .utils.battleMessages import showPlayerMessage
+from .utils.visibilityMask import currentVisibilityMask, filterVegetationByVisibility
+from .utils.Restriction import Restriction
+from .core.colliderCache import VegetationColliderCache
+from .core.mapCache import loadMapVegetation
+from .core.runtimeCache import densityVariant
+from .core.treeFallRuntime import registerTreeFallHandler, unregisterTreeFallHandler
+from .core.treeFallTransform import fallenTreeMatrixRows, solvedRestingTreePose
 
-from gui.debugUtils import ui, gizmos, drawer
+try:
+  from gui.debugUtils import ui, gizmos, drawer
+except ImportError:
+  ui = None
+  gizmos = None
+  drawer = None
 
+ALLOWED_ARENA_GUI_TYPES = (
+  ARENA_GUI_TYPE.TRAINING,
+  ARENA_GUI_TYPE.MAPS_TRAINING,
+)
 
 DEBUG_MODE = '{{DEBUG_MODE}}'
 VERSION = '{{VERSION}}'
-
-
-def toMatrix(dm):
-  m = Math.Matrix() # type: Math.Matrix
-  for x in range(4):
-    for y in range(4):
-      m.setElement(x, y, dm[x][y])
-          
-  return m
-
-def add(a, b):
-    return Math.Vector3(a.x + b.x, a.y + b.y, a.z + b.z)
-
-def mul(a, s):
-    return Math.Vector3(a.x * s, a.y * s, a.z * s)
-
-def drawBasis(matrix, scale=3.0):
-    origin = Math.Vector3(matrix[3][0], matrix[3][1], matrix[3][2])
-
-    x_axis = Math.Vector3(matrix[0][0], matrix[0][1], matrix[0][2])
-    y_axis = Math.Vector3(matrix[1][0], matrix[1][1], matrix[1][2])
-    z_axis = Math.Vector3(matrix[2][0], matrix[2][1], matrix[2][2])
-
-    x_end = add(origin, mul(x_axis, scale))
-    y_end = add(origin, mul(y_axis, scale))
-    z_end = add(origin, mul(z_axis, scale))
-
-    return (
-      drawer.createLine(points=[origin, x_end], color=0xff0000, backColor=0xff0000),
-      drawer.createLine(points=[origin, y_end], color=0x00ff00, backColor=0x00ff00),
-      drawer.createLine(points=[origin, z_end], color=0x0000ff, backColor=0x0000ff)
-    )
 
 class WotstatVegetation(CallbackDelayer):
 
@@ -86,11 +71,17 @@ class WotstatVegetation(CallbackDelayer):
     self.lastPosition = Math.Vector3(0, 0, 0)
     self.markers = []
 
-    self.panel = ui.createPanel('Vegetation')
-    self.checkboxShowPositions = self.panel.addCheckboxLine('Show positions (30m)', self.showPositions, onToggleCallback=self.onShowPositions)
-    self.checkboxShowColliders = self.panel.addCheckboxLine('Show colliders', self.showColliders, onToggleCallback=self.onShowColliders)
-    self.checkboxOnlyCamuflagable = self.panel.addCheckboxLine('  Only camuflagable', self.onlyCamouflable, onToggleCallback=self.onOnlyCamouflable)
+    if ui is not None:
+      self.panel = ui.createPanel(t('title'))
+      self.checkboxShowPositions = self.panel.addCheckboxLine(t('showPositions'), self.showPositions, onToggleCallback=self.onShowPositions)
+      self.checkboxShowColliders = self.panel.addCheckboxLine(t('showColliders'), self.showColliders, onToggleCallback=self.onShowColliders)
+      self.checkboxOnlyCamuflagable = self.panel.addCheckboxLine(t('onlyCamouflaging'), self.onlyCamouflable, onToggleCallback=self.onOnlyCamouflable)
+    else:
+      self.panel = self.checkboxShowPositions = self.checkboxShowColliders = self.checkboxOnlyCamuflagable = None
+      InputHandler.g_instance.onKeyUp += self.handleKeyUpEvent
+
     g_playerEvents.onAvatarBecomeNonPlayer += self.onAvatarBecomeNonPlayer
+    Restriction.instance().onRestrictionChange += self.onRestrictionChange
 
   def dispose(self):
     self.showColliders = False
@@ -99,6 +90,30 @@ class WotstatVegetation(CallbackDelayer):
     self.clearMarkers()
     self.unregisterTreeFallHook()
     self.hideColliders()
+
+  def handleKeyUpEvent(self, event):
+    # type: (BigWorld.KeyEvent) -> None
+
+    if event.key not in (Keys.KEY_F2, Keys.KEY_F3):
+      return
+
+    if not Restriction.instance().isAllowed():
+      showPlayerMessage(t('message.modUnavailable'), BATTLE_MESSAGES_CONSTS.COLOR_RED)
+      return
+
+    if event.key == Keys.KEY_F2:
+      showPlayerMessage(t('message.showColliders') + t('message.' + str(not self.showColliders)), BATTLE_MESSAGES_CONSTS.COLOR_GOLD)
+      BigWorld.callback(0.1, lambda: self.onShowColliders(not self.showColliders))
+    elif event.key == Keys.KEY_F3:
+      showPlayerMessage(t('message.onlyCamouflaging') + t('message.' + str(not self.onlyCamouflable)), BATTLE_MESSAGES_CONSTS.COLOR_GOLD)
+      BigWorld.callback(0.1, lambda: self.onOnlyCamouflable(not self.onlyCamouflable))
+
+  def onRestrictionChange(self, allowed):
+    if self.panel is not None:
+      self.panel.enabled = allowed
+
+    if not allowed:
+      self.resetArenaRuntimeState('restriction change')
 
   def onAvatarBecomeNonPlayer(self):
     self.resetArenaRuntimeState('avatar become non-player')
@@ -116,8 +131,8 @@ class WotstatVegetation(CallbackDelayer):
     self.vegetationDataArena = ''
     self.activeVisibilityMask = None
     self.visibilityFilterApplied = False
-    self.checkboxShowColliders.isChecked = False
-    self.checkboxShowPositions.isChecked = False
+    if self.checkboxShowColliders is not None: self.checkboxShowColliders.isChecked = False
+    if self.checkboxShowPositions is not None: self.checkboxShowPositions.isChecked = False
     log('arena runtime state reset: ' + str(reason))
 
   def getColliderCache(self):
@@ -438,9 +453,11 @@ class WotstatVegetation(CallbackDelayer):
       if pos.distSqrTo(vPos) > 30**2: continue
       
       modelName = v['asset'].replace('.srt', '') + ' [' + str(i) + ']'
-      self.markers.append(gizmos.createMarker(vPos, size=5, text=modelName))
+      if gizmos is not None:
+        self.markers.append(gizmos.createMarker(vPos, size=5, text=modelName))
 
-      for l in drawBasis(matrix, 1): self.markers.append(l)
+      if drawer is not None:
+        for l in drawBasis(matrix, 1): self.markers.append(l)
 
     return 0.0
 
@@ -491,3 +508,36 @@ class WotstatVegetation(CallbackDelayer):
     self.updateVisibilityFilter()
 
     return True
+
+
+def toMatrix(dm):
+  m = Math.Matrix() # type: Math.Matrix
+  for x in range(4):
+    for y in range(4):
+      m.setElement(x, y, dm[x][y])
+          
+  return m
+
+def drawBasis(matrix, scale=3.0):
+
+    def add(a, b):
+      return Math.Vector3(a.x + b.x, a.y + b.y, a.z + b.z)
+
+    def mul(a, s):
+      return Math.Vector3(a.x * s, a.y * s, a.z * s)
+
+    origin = Math.Vector3(matrix[3][0], matrix[3][1], matrix[3][2])
+
+    x_axis = Math.Vector3(matrix[0][0], matrix[0][1], matrix[0][2])
+    y_axis = Math.Vector3(matrix[1][0], matrix[1][1], matrix[1][2])
+    z_axis = Math.Vector3(matrix[2][0], matrix[2][1], matrix[2][2])
+
+    x_end = add(origin, mul(x_axis, scale))
+    y_end = add(origin, mul(y_axis, scale))
+    z_end = add(origin, mul(z_axis, scale))
+
+    return (
+      drawer.createLine(points=[origin, x_end], color=0xff0000, backColor=0xff0000),
+      drawer.createLine(points=[origin, y_end], color=0x00ff00, backColor=0x00ff00),
+      drawer.createLine(points=[origin, z_end], color=0x0000ff, backColor=0x0000ff)
+    )

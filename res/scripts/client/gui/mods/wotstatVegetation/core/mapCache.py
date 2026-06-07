@@ -1,9 +1,9 @@
 import ResMgr
 
-from .spaceBinUnpacker import SpaceBinUnpackError, unpackVegetationFromSpaceBin
+from .unpack.spaceBinUnpacker import SpaceBinUnpackError, unpackVegetationFromSpaceBin
 from .runtimeCache import MAP_CACHE_FORMAT_VERSION, mapCachePath, readJson, writeJson
 
-from .logger import log
+from ..utils.logger import log
 
 
 def loadMapVegetation(arenaName, preferencesPath, version):

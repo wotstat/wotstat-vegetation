@@ -1,7 +1,7 @@
 import AreaDestructibles
 import DestructiblesCache
 
-from .logger import log
+from ..utils.logger import log
 
 
 _handlers = []
