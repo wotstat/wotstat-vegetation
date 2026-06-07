@@ -34,20 +34,27 @@ SPACE_BIN_FORMAT_SIGNATURES = {
 
 class SpaceBinUnpackError(Exception):
   pass
+
+
 def _isFinite(value):
   if hasattr(math, 'isfinite'):
     return math.isfinite(value)
   return value == value and value != float('inf') and value != float('-inf')
 
-def unpackVegetationFromSpaceBin(binary, debug=False):
-  sections = _parseSectionTable(binary)
-  spaceFormat = _detectSpaceBinFormat(binary, sections)
-  _debugLog(
-    debug,
-    'space.bin format: ' + spaceFormat['name'] +
-    ' markers=' + _formatMarkerSummary(spaceFormat['markers'])
-  )
 
+def unpackVegetationFromSpaceBin(binary, sourcePath='space.bin'):
+  try:
+    return _unpackVegetationFromSpaceBin(binary)
+  except SpaceBinUnpackError as error:
+    prefix = str(sourcePath) + ': '
+    message = str(error)
+    if not message.startswith(prefix):
+      raise SpaceBinUnpackError(prefix + message)
+    raise
+
+
+def _unpackVegetationFromSpaceBin(binary):
+  sections = _parseSectionTable(binary)
   assets = _parseAssetsByKey(_sectionData(binary, sections, b'BWST'))
   records = _parseSptr(_sectionData(binary, sections, b'SpTr'))
   terrainGrid = _parseTerrainGrid(_sectionDataOptional(binary, sections, b'BWT2'))
@@ -74,11 +81,6 @@ def unpackVegetationFromSpaceBin(binary, debug=False):
   return vegetation
 
 
-def detectSpaceBinFormat(binary):
-  sections = _parseSectionTable(binary)
-  return _detectSpaceBinFormat(binary, sections)['name']
-
-
 def _detectSpaceBinFormat(data, sections):
   markers = {}
   sectionById = _sectionsById(sections)
@@ -88,7 +90,8 @@ def _detectSpaceBinFormat(data, sections):
     if section is None:
       raise SpaceBinUnpackError(
         'unsupported space.bin format: marker section ' +
-        _sectionIdToString(sectionId) + ' not found'
+        _sectionIdToString(sectionId) +
+        ' not found; available=' + _formatSectionList(sections)
       )
 
     markers[sectionId] = _readU32AtAbsoluteOffset(
@@ -142,7 +145,7 @@ def _parseSectionTable(data):
   root = _readSectionMeta(data, 0)
   if root['id'] != b'BWTB':
     raise SpaceBinUnpackError(
-      'invalid root section: expected BWTB, got ' + _sectionIdToString(root['id'])
+      'invalid root section at offset 0: expected BWTB, got ' + _sectionIdToString(root['id'])
     )
 
   sections = []
@@ -171,7 +174,10 @@ def _sectionData(data, sections, sectionId):
       _checkBounds(data, offset, length, 'section ' + _sectionIdToString(sectionId))
       return data[offset:offset + length]
 
-  raise SpaceBinUnpackError('section ' + _sectionIdToString(sectionId) + ' not found')
+  raise SpaceBinUnpackError(
+    'section ' + _sectionIdToString(sectionId) +
+    ' not found; available=' + _formatSectionList(sections)
+  )
 
 
 def _sectionDataOptional(data, sections, sectionId):
@@ -190,7 +196,9 @@ def _parseAssetsByKey(section):
   entryCount = _readU32(section, 4)
 
   if entrySize < 12:
-    raise SpaceBinUnpackError('unsupported BWST entry size: ' + str(entrySize))
+    raise SpaceBinUnpackError(
+      'unsupported BWST entry size: expected at least 12, got ' + str(entrySize)
+    )
 
   entriesStart = 8
   entriesBytes = entrySize * entryCount
@@ -214,7 +222,12 @@ def _parseAssetsByKey(section):
     stringEnd = stringStart + stringLen
 
     if stringEnd > stringsEnd:
-      raise SpaceBinUnpackError('BWST string out of bounds: index=' + str(index))
+      raise SpaceBinUnpackError(
+        'BWST string out of bounds: index=' + str(index) +
+        ' string_offset=' + str(stringRelOffset) +
+        ' string_size=' + str(stringLen) +
+        ' strings_size=' + str(stringsLen)
+      )
 
     assetName = _decodeString(section[stringStart:stringEnd])
     if assetName.lower().endswith('.srt') and storedKey not in assets:
@@ -228,7 +241,10 @@ def _parseSptr(section):
   recordCount = _readU32(section, 4)
 
   if recordSize != SPTR_RECORD_SIZE:
-    raise SpaceBinUnpackError('unsupported SpTr record size: ' + str(recordSize))
+    raise SpaceBinUnpackError(
+      'unsupported SpTr record size: expected ' + str(SPTR_RECORD_SIZE) +
+      ', got ' + str(recordSize)
+    )
 
   recordsStart = 8
   _checkBounds(section, recordsStart, recordCount * recordSize, 'SpTr records')
@@ -251,7 +267,10 @@ def _parseTerrainGrid(section):
 
   settingsSize = _readU32(section, 0)
   if settingsSize < BWT2_MIN_SETTINGS_SIZE:
-    raise SpaceBinUnpackError('unsupported BWT2 settings size: ' + str(settingsSize))
+    raise SpaceBinUnpackError(
+      'unsupported BWT2 settings size: expected at least ' +
+      str(BWT2_MIN_SETTINGS_SIZE) + ', got ' + str(settingsSize)
+    )
 
   _checkBounds(section, 4, settingsSize, 'BWT2 terrain settings')
 
@@ -307,7 +326,12 @@ def _parseSpeedtreeDestrIndices(section, records, terrainGrid):
     spanCount = _readU32(section, chunkOffset + 8)
 
     if spanStart + spanCount > spanTable['count']:
-      raise SpaceBinUnpackError('WGDE chunk span range out of bounds: index=' + str(chunkIndex))
+      raise SpaceBinUnpackError(
+        'WGDE chunk span range out of bounds: chunk_index=' + str(chunkIndex) +
+        ' span_start=' + str(spanStart) +
+        ' span_count=' + str(spanCount) +
+        ' span_table_count=' + str(spanTable['count'])
+      )
 
     for localDestrIndex in range(spanCount):
       spanOffset = spanTable['start'] + (spanStart + localDestrIndex) * spanTable['entrySize']
@@ -322,7 +346,9 @@ def _parseSpeedtreeDestrIndices(section, records, terrainGrid):
         if objectIndex >= objectTable['count']:
           raise SpaceBinUnpackError(
             'WGDE object index out of bounds: chunk_index=' + str(chunkIndex) +
-            ' local_index=' + str(localDestrIndex)
+            ' local_index=' + str(localDestrIndex) +
+            ' object_index=' + str(objectIndex) +
+            ' object_table_count=' + str(objectTable['count'])
           )
 
         value = _readU32(section, objectTable['start'] + objectIndex * objectTable['entrySize'])
@@ -453,7 +479,9 @@ def _readU32AtAbsoluteOffset(data, offset, label):
 
 
 def _sectionIdToString(sectionId):
-  return sectionId.decode('ascii', 'replace')
+  if hasattr(sectionId, 'decode'):
+    return sectionId.decode('ascii', 'replace')
+  return str(sectionId)
 
 
 def _formatMarkerSummary(markers):
@@ -464,16 +492,19 @@ def _formatMarkerSummary(markers):
   return '{' + ', '.join(parts) + '}'
 
 
-def _debugLog(debug, message):
-  if not debug:
-    return
-
-  if callable(debug):
-    debug(message)
-  else:
-    print(message)
+def _formatSectionList(sections):
+  return '[' + ', '.join([_sectionIdToString(section['id']) for section in sections]) + ']'
 
 
 def _checkBounds(data, offset, size, label):
   if offset < 0 or size < 0 or offset + size > len(data):
-    raise SpaceBinUnpackError(label + ' out of bounds at offset ' + str(offset))
+    if offset < 0 or offset > len(data):
+      available = 0
+    else:
+      available = len(data) - offset
+    raise SpaceBinUnpackError(
+      label + ' out of bounds: offset=' + str(offset) +
+      ' size=' + str(size) +
+      ' data_size=' + str(len(data)) +
+      ' available=' + str(available)
+    )

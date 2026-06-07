@@ -95,8 +95,15 @@ class Reader(object):
 
   def readBytes(self, size):
     if self.pos < 0 or self.pos + size > len(self.data):
+      if self.pos < 0 or self.pos > len(self.data):
+        available = 0
+      else:
+        available = len(self.data) - self.pos
       raise SrtParseError(
-        str(self.path) + ': unexpected end of file at offset ' + str(self.pos)
+        str(self.path) + ': unexpected end of file: offset=' + str(self.pos) +
+        ' size=' + str(size) +
+        ' file_size=' + str(len(self.data)) +
+        ' available=' + str(available)
       )
     result = self.data[self.pos:self.pos + size]
     self.pos += size
@@ -117,7 +124,19 @@ class Reader(object):
 
 def parseSrtBinary(data, sourcePath):
   reader = Reader(data, sourcePath)
+  try:
+    return _parseSrtBinary(reader, sourcePath)
+  except SrtParseError:
+    raise
+  except (struct.error, ValueError, IndexError) as error:
+    raise SrtParseError(
+      str(sourcePath) + ': failed to parse near offset ' + str(reader.pos) +
+      ' file_size=' + str(len(data)) +
+      ': ' + str(error)
+    )
 
+
+def _parseSrtBinary(reader, sourcePath):
   header = _readCString(reader.data, 0)[0]
   if header != 'SRT 06.0.0':
     raise SrtParseError(str(sourcePath) + ': unsupported SRT header ' + repr(header))

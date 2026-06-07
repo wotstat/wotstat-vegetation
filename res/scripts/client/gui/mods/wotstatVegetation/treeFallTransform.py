@@ -3,21 +3,12 @@ import math
 GRAVITY = 9.81
 
 
-def isFinite(value):
-  if hasattr(math, 'isfinite'):
-    return math.isfinite(value)
-  return value == value and value != float('inf') and value != float('-inf')
-
-
 def fallenTreePitch(fallPitchConstr, fallback=None, allowZero=False):
   if fallback is None:
     fallback = math.pi / 2.0
-  try:
-    pitch = float(fallPitchConstr)
-  except (TypeError, ValueError):
-    return fallback
+  pitch = float(fallPitchConstr)
 
-  if not isFinite(pitch) or pitch > math.pi:
+  if pitch > math.pi:
     return fallback
   if pitch < 0.0 or pitch == 0.0 and not allowZero:
     return fallback
@@ -26,7 +17,6 @@ def fallenTreePitch(fallPitchConstr, fallback=None, allowZero=False):
 
 
 def matrixYScale(matrixRows):
-  _validateMatrixRows(matrixRows)
   y = matrixRows[1]
   return math.sqrt(y[0] * y[0] + y[1] * y[1] + y[2] * y[2])
 
@@ -34,11 +24,11 @@ def matrixYScale(matrixRows):
 def solvedRestingTreePose(standingMatrixRows, fallPitchConstr, fallingParams, solvePitch):
   pitchConstr = fallenTreePitch(fallPitchConstr)
   scale = matrixYScale(standingMatrixRows)
-  mass = _fallingParam(fallingParams, 0, 0, 0.0)
-  height = _fallingParam(fallingParams, 0, 1, 0.0)
-  buryDepth = _fallingParam(fallingParams, 0, 3, 0.0)
-  springStiffness = _fallingParam(fallingParams, 1, 0, 0.0)
-  springAngle = _fallingParam(fallingParams, 1, 1, 0.0)
+  mass = float(fallingParams.get(0, 0))
+  height = float(fallingParams.get(0, 1))
+  buryDepth = float(fallingParams.get(0, 3))
+  springStiffness = float(fallingParams.get(1, 0))
+  springAngle = float(fallingParams.get(1, 1))
 
   heightScaled = height * scale
   massScaled = mass * scale * scale * scale
@@ -52,27 +42,16 @@ def solvedRestingTreePose(standingMatrixRows, fallPitchConstr, fallingParams, so
 
 
 def fallenTreeMatrixRows(standingMatrixRows, fallYaw, fallPitchConstr=None, finalPitch=None, buryDepth=0.0):
-  _validateMatrixRows(standingMatrixRows)
-  try:
-    yaw = float(fallYaw)
-  except (TypeError, ValueError):
-    raise ValueError('invalid fall yaw: ' + str(fallYaw))
-  if not isFinite(yaw):
-    raise ValueError('invalid fall yaw: ' + str(fallYaw))
+  yaw = float(fallYaw)
 
   if finalPitch is None:
     pitch = fallenTreePitch(fallPitchConstr)
   else:
     pitch = fallenTreePitch(finalPitch, fallenTreePitch(fallPitchConstr), allowZero=True)
 
-  try:
-    buryDepth = float(buryDepth)
-  except (TypeError, ValueError):
-    buryDepth = 0.0
-  if not isFinite(buryDepth):
-    buryDepth = 0.0
+  buryDepth = float(buryDepth)
 
-  base = _copyMatrixRows(standingMatrixRows)
+  base = [list(row) for row in standingMatrixRows]
   translation = list(base[3])
   base[3] = [0.0, 0.0, 0.0, translation[3]]
 
@@ -86,42 +65,6 @@ def fallenTreeMatrixRows(standingMatrixRows, fallYaw, fallPitchConstr=None, fina
     translation[3]
   ]
   return matrix
-
-
-def _copyMatrixRows(matrixRows):
-  return [list(row) for row in matrixRows]
-
-
-def _validateMatrixRows(matrixRows):
-  if matrixRows is None or len(matrixRows) != 4:
-    raise ValueError('matrix must have 4 rows')
-  for row in matrixRows:
-    if row is None or len(row) != 4:
-      raise ValueError('matrix rows must have 4 values')
-    for value in row:
-      try:
-        number = float(value)
-      except (TypeError, ValueError):
-        raise ValueError('matrix contains a non-number value: ' + str(value))
-      if not isFinite(number):
-        raise ValueError('matrix contains a non-finite value: ' + str(value))
-
-
-def _fallingParam(params, row, col, default):
-  try:
-    value = params.get(row, col)
-  except Exception:
-    try:
-      value = params[row][col]
-    except Exception:
-      return default
-  try:
-    value = float(value)
-  except (TypeError, ValueError):
-    return default
-  if not isFinite(value):
-    return default
-  return value
 
 
 def _multiplyRows(a, b):

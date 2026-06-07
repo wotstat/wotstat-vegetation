@@ -1,28 +1,26 @@
 import BigWorld
+import DestructiblesCache
 import Math
+
+from PlayerEvents import g_playerEvents
+from . import bigworldCompat
+
+from AreaDestructibles import g_destructiblesManager
 
 from .colliderCache import VegetationColliderCache
 from .logger import log
 from .mapCache import loadMapVegetation
 from .runtimeCache import densityVariant, normalizeResourcePathForKey
 from .treeFallRuntime import (
-  currentDestructiblesManager,
-  currentDestructiblesSpaceID,
-  decodeFallenTreeData,
-  isBushDestructible,
   registerTreeFallHandler,
   unregisterTreeFallHandler
 )
 from .treeFallTransform import fallenTreeMatrixRows, solvedRestingTreePose
-from .visibility_mask import buildCurrentVisibilityContext, filterVegetationByVisibility
+from .visibility_mask import currentVisibilityMask, filterVegetationByVisibility
 from adisp import adisp_process
 from shared_utils import awaitNextFrame
 from helpers.CallbackDelayer import CallbackDelayer
 from helpers import isPlayerAvatar
-try:
-  from helpers import getPreferencesFilePath as helpersGetPreferencesFilePath
-except ImportError:
-  helpersGetPreferencesFilePath = None
 
 from gui.debugUtils import ui, gizmos, drawer
 
@@ -71,7 +69,7 @@ class WotstatVegetation(CallbackDelayer):
     self.vegetationData = []
     self.visibleVegetationData = []
     self.vegetationDataArena = ''
-    self.visibilityContext = None
+    self.activeVisibilityMask = None
     self.visibilityFilterApplied = False
 
     self.showPositions = False
@@ -89,7 +87,6 @@ class WotstatVegetation(CallbackDelayer):
     self.treeColliderByID = {}
     self.treeColliderStates = {}
     self.treeFallHookRegistered = False
-    self.avatarLeaveHookRegistered = False
 
     self.lastPosition = Math.Vector3(0, 0, 0)
     self.markers = []
@@ -98,43 +95,20 @@ class WotstatVegetation(CallbackDelayer):
     self.checkboxShowPositions = self.panel.addCheckboxLine('Show positions (30m)', self.showPositions, onToggleCallback=self.onShowPositions)
     self.checkboxShowColliders = self.panel.addCheckboxLine('Show colliders', self.showColliders, onToggleCallback=self.onShowColliders)
     self.checkboxOnlyCamuflagable = self.panel.addCheckboxLine('  Only camuflagable', self.onlyCamouflable, onToggleCallback=self.onOnlyCamouflable)
-    self.registerAvatarLeaveHook()
+    g_playerEvents.onAvatarBecomeNonPlayer += self.onAvatarBecomeNonPlayer
 
   def dispose(self):
     self.showColliders = False
-    self.unregisterAvatarLeaveHook()
+    g_playerEvents.onAvatarBecomeNonPlayer -= self.onAvatarBecomeNonPlayer
     self.stopCallback(self.update)
     self.clearMarkers()
     self.unregisterTreeFallHook()
     self.hideColliders()
 
-  def registerAvatarLeaveHook(self):
-    if self.avatarLeaveHookRegistered:
-      return
-    try:
-      from PlayerEvents import g_playerEvents
-      g_playerEvents.onAvatarBecomeNonPlayer += self.onAvatarBecomeNonPlayer
-      self.avatarLeaveHookRegistered = True
-      log('avatar leave handler registered')
-    except Exception as error:
-      log('avatar leave handler registration failed: ' + str(error))
-
-  def unregisterAvatarLeaveHook(self):
-    if not self.avatarLeaveHookRegistered:
-      return
-    try:
-      from PlayerEvents import g_playerEvents
-      g_playerEvents.onAvatarBecomeNonPlayer -= self.onAvatarBecomeNonPlayer
-      log('avatar leave handler unregistered')
-    except Exception as error:
-      log('avatar leave handler unregister failed: ' + str(error))
-    self.avatarLeaveHookRegistered = False
-
   def onAvatarBecomeNonPlayer(self):
     self.resetArenaRuntimeState('avatar become non-player')
 
   def resetArenaRuntimeState(self, reason):
-    log('resetting arena runtime state: ' + str(reason))
     self.showColliders = False
     self.showPositions = False
     self.stopCallback(self.update)
@@ -145,49 +119,22 @@ class WotstatVegetation(CallbackDelayer):
     self.vegetationData = []
     self.visibleVegetationData = []
     self.vegetationDataArena = ''
-    self.visibilityContext = None
+    self.activeVisibilityMask = None
     self.visibilityFilterApplied = False
-    self.setCheckboxState('checkboxShowColliders', False)
-    self.setCheckboxState('checkboxShowPositions', False)
-    log('arena runtime state reset complete')
-
-  def setCheckboxState(self, attrName, isChecked):
-    try:
-      checkbox = getattr(self, attrName, None)
-      if checkbox is not None:
-        checkbox.isChecked = isChecked
-    except Exception as error:
-      log('failed to update checkbox state ' + str(attrName) + ': ' + str(error))
-
-  def preferencesPath(self):
-    getters = (
-      helpersGetPreferencesFilePath,
-      getattr(BigWorld, 'wg_getPreferencesFilePath', None),
-      getattr(BigWorld, 'getPreferencesFilePath', None)
-    )
-    for getter in getters:
-      if getter is None or not callable(getter):
-        continue
-      try:
-        path = getter()
-      except Exception as error:
-        log('failed to resolve preferences path: ' + str(error))
-        continue
-      if path:
-        return path
-    log('preferences path unavailable, using relative cache root')
-    return ''
+    self.checkboxShowColliders.isChecked = False
+    self.checkboxShowPositions.isChecked = False
+    log('arena runtime state reset: ' + str(reason))
 
   def getColliderCache(self):
-    preferencesPath = self.preferencesPath()
+    preferencesPath = bigworldCompat.getPreferencesFilePath()
     if self.colliderCache is None or self.colliderCache.preferencesPath != preferencesPath:
-      self.colliderCache = VegetationColliderCache(preferencesPath, VERSION, log)
+      self.colliderCache = VegetationColliderCache(preferencesPath, VERSION)
     return self.colliderCache
 
   def loadMapFromSpaceBin(self, mapName):
     if self.vegetationDataArena == mapName: return
 
-    vegetation = loadMapVegetation(mapName, self.preferencesPath(), VERSION, log)
+    vegetation = loadMapVegetation(mapName, bigworldCompat.getPreferencesFilePath(), VERSION)
     if vegetation is None:
       self.vegetationData = []
       self.visibleVegetationData = []
@@ -200,47 +147,23 @@ class WotstatVegetation(CallbackDelayer):
     self.visibilityFilterApplied = False
     self.vegetationDataArena = mapName
 
-  def updateVisibilityFilter(self, mapName):
-    context = buildCurrentVisibilityContext(log)
-    self.visibilityContext = context
-    activeMask = context.get('activeMask')
-    log(
-      'current battle visibility: map=' + str(mapName) +
-      ' arenaTypeID=' + str(context.get('arenaTypeID')) +
-      ' gameplayID=' + str(context.get('gameplayID')) +
-      ' gameplayName=' + str(context.get('gameplayName')) +
-      ' bonusType=' + str(context.get('arenaBonusType')) +
-      ' activeMask=0x%08x' % (int(activeMask) & 0xffffffff)
-    )
-
-    visible, stats = filterVegetationByVisibility(self.vegetationData, activeMask)
-    self.visibleVegetationData = visible
+  def updateVisibilityFilter(self):
+    self.activeVisibilityMask = currentVisibilityMask()
+    self.visibleVegetationData = filterVegetationByVisibility(self.vegetationData, self.activeVisibilityMask)
     self.visibilityFilterApplied = True
-    log(
-      'visibility filter: before=' + str(stats['before']) +
-      ' after=' + str(stats['after']) +
-      ' skipped=' + str(stats['skipped']) +
-      ' missing_mask=' + str(stats['missingMask']) +
-      ' invalid_mask=' + str(stats['invalidMask']) +
-      ' activeMask=0x%08x' % (int(activeMask) & 0xffffffff)
-    )
 
   def loadColliders(self):
-    activeMask = None
-    if self.visibilityContext is not None:
-      activeMask = self.visibilityContext.get('activeMask')
     if (
       self.collidersArena == self.vegetationDataArena and
-      self.collidersVisibilityMask == activeMask and
+      self.collidersVisibilityMask == self.activeVisibilityMask and
       self.collidersOnlyCamouflable == self.onlyCamouflable and
       self.colliders
     ):
-      log('collider instances already prepared for arena: ' + self.collidersArena)
       return
 
     self.clearColliderInstances()
     self.collidersArena = self.vegetationDataArena
-    self.collidersVisibilityMask = activeMask
+    self.collidersVisibilityMask = self.activeVisibilityMask
     self.collidersOnlyCamouflable = self.onlyCamouflable
     colliderCache = self.getColliderCache()
     modelPathByAsset = {}
@@ -250,15 +173,15 @@ class WotstatVegetation(CallbackDelayer):
 
     vegetation = self.visibleVegetationData if self.visibilityFilterApplied else self.vegetationData
     for v in vegetation:
-      asset = v.get('asset')
-      if not asset:
-        continue
+      asset = v['asset']
       assetKey = normalizeResourcePathForKey(asset)
 
       if assetKey in failedAssets:
         continue
 
-      densityMetadata = self.densityMetadataForCollider(colliderCache, asset, assetKey, densityMetadataByAsset)
+      if assetKey not in densityMetadataByAsset:
+        densityMetadataByAsset[assetKey] = colliderCache.densityMetadataFor(asset)
+      densityMetadata = densityMetadataByAsset[assetKey]
       if self.onlyCamouflable and densityVariant(densityMetadata.get('camouflageDensity')) == 'red':
         skippedRed += 1
         continue
@@ -272,15 +195,10 @@ class WotstatVegetation(CallbackDelayer):
       else:
         modelPath = modelPathByAsset[assetKey]
       
-      try:
-        model = BigWorld.Model(modelPath)
-        model.castsShadow = False
-      except Exception as error:
-        log('failed to create BigWorld.Model for ' + modelPath + ': ' + str(error))
-        failedAssets[assetKey] = True
-        continue
+      model = BigWorld.Model(modelPath)
+      model.castsShadow = False
       
-      matrixRows = self.copyMatrixRows(v['matrix'])
+      matrixRows = [list(row) for row in v['matrix']]
       matrix = toMatrix(matrixRows)
       servo = BigWorld.Servo(matrix)
       model.addMotor(servo)
@@ -307,32 +225,7 @@ class WotstatVegetation(CallbackDelayer):
       ' tree_ids=' + str(len(self.treeColliderByID))
     )
 
-  def densityMetadataForCollider(self, colliderCache, asset, assetKey, densityMetadataByAsset):
-    if assetKey in densityMetadataByAsset:
-      return densityMetadataByAsset[assetKey]
-
-    try:
-      metadata = colliderCache.densityMetadataFor(asset)
-    except Exception as error:
-      log('failed to read camouflage metadata for ' + str(asset) + ': ' + str(error))
-      metadata = {
-        'camouflageDensity': None,
-        'camouflageAffects': None,
-        'camouflageReason': 'metadata_error'
-      }
-
-    densityMetadataByAsset[assetKey] = metadata
-    return metadata
-
   def clearColliderInstances(self):
-    try:
-      del self.colliders[:]
-    except Exception:
-      pass
-    try:
-      del self.colliderInstances[:]
-    except Exception:
-      pass
     self.colliders = []
     self.colliderInstances = []
     self.collidersArena = ''
@@ -342,239 +235,122 @@ class WotstatVegetation(CallbackDelayer):
     self.treeColliderByID = {}
     self.treeColliderStates = {}
 
-  def copyMatrixRows(self, matrixRows):
-    return [list(row) for row in matrixRows]
-
-  def treeKey(self, chunkID, destrIndex):
-    if chunkID is None or destrIndex is None:
-      return None
-    try:
-      return (int(chunkID), int(destrIndex))
-    except Exception as error:
-      log(
-        'invalid tree id: chunkID=' + str(chunkID) +
-        ' destrIndex=' + str(destrIndex) + ' error=' + str(error)
-      )
-      return None
-
   def treeIDText(self, key):
-    if key is None:
-      return 'chunkID=None destrIndex=None'
     return 'chunkID=' + str(key[0]) + ' destrIndex=' + str(key[1])
 
   def addTreeColliderIndex(self, instance):
-    key = self.treeKey(instance.get('chunkID'), instance.get('destrIndex'))
-    if key is None:
+    if instance.get('chunkID') is None or instance.get('destrIndex') is None:
       return
+    key = (int(instance['chunkID']), int(instance['destrIndex']))
     entries = self.treeColliderByID.setdefault(key, [])
     entries.append(instance)
-    if len(entries) > 1:
-      log('duplicate tree collider id: ' + self.treeIDText(key) + ' count=' + str(len(entries)))
-
-  def treeChunks(self):
-    chunks = {}
-    for chunkID, _destrIndex in self.treeColliderByID.keys():
-      chunks[chunkID] = True
-    return chunks.keys()
 
   def registerTreeFallHook(self):
     if self.treeFallHookRegistered:
       return
     if not self.treeColliderByID:
-      log('tree fall hook skipped: no destructible tree ids in collider set')
       return
-    self.treeFallHookRegistered = registerTreeFallHandler(self.onTreeFall, log)
+    self.treeFallHookRegistered = registerTreeFallHandler(self.onTreeFall)
 
   def unregisterTreeFallHook(self):
     if not self.treeFallHookRegistered:
       return
-    unregisterTreeFallHandler(self.onTreeFall, log)
+    unregisterTreeFallHandler(self.onTreeFall)
     self.treeFallHookRegistered = False
 
   def syncFallenTreeStates(self):
     if not self.treeColliderByID:
       return
 
-    manager = currentDestructiblesManager(log)
-    if manager is None:
-      log('fallen tree state sync skipped: destructibles manager unavailable')
-      return
-
     chunksChecked = 0
     fallenSeen = 0
     updated = 0
-    for chunkID in self.treeChunks():
-      try:
-        controller = manager.getController(chunkID)
-      except Exception as error:
-        log('failed to read destructibles controller for chunkID=' + str(chunkID) + ': ' + str(error))
-        continue
+    chunks = {}
+    for chunkID, _destrIndex in self.treeColliderByID.keys():
+      chunks[chunkID] = True
+
+    for chunkID in chunks.keys():
+      controller = g_destructiblesManager.getController(chunkID)
       if controller is None:
         continue
       chunksChecked += 1
-      try:
-        fallenTrees = getattr(controller, 'fallenTrees', ()) or ()
-      except Exception as error:
-        log('failed to read fallenTrees for chunkID=' + str(chunkID) + ': ' + str(error))
-        continue
-      for fallData in fallenTrees:
-        decoded = decodeFallenTreeData(fallData, log)
-        if decoded is None:
-          continue
+      for fallData in controller.fallenTrees:
+        decoded = DestructiblesCache.decodeFallenTree(fallData)
         fallenSeen += 1
         destrIndex, fallYaw, fallPitchConstr, fallSpeed = decoded
         if self.onTreeFall(chunkID, destrIndex, fallYaw, fallPitchConstr, fallSpeed, 'sync'):
           updated += 1
 
-    log(
-      'fallen tree state sync complete: chunks=' + str(chunksChecked) +
-      ' fallen=' + str(fallenSeen) +
-      ' updated=' + str(updated)
-    )
-
-  def finalTreeFallPose(self, standingMatrixRows, spaceID, key, fallPitchConstr):
-    if spaceID is None:
-      log('final tree fall pose unavailable, space id missing: ' + self.treeIDText(key))
-      return (None, 0.0)
-
-    try:
-      getFallingParams = getattr(BigWorld, 'wg_getFallingParams', getattr(BigWorld, 'getFallingParams', None))
-      fallingParams = getFallingParams(spaceID, key[0], key[1])
-    except Exception as error:
-      log('failed to read tree falling params: ' + self.treeIDText(key) + ' error=' + str(error))
-      return (None, 0.0)
-
-    solver = getattr(BigWorld, 'wg_solveDestructibleFallPitch', getattr(BigWorld, 'solveDestructibleFallPitch', None))
-    if solver is None or not callable(solver):
-      log('final tree fall pitch solver unavailable: ' + self.treeIDText(key))
-      return (None, 0.0)
-
-    try:
-      return solvedRestingTreePose(standingMatrixRows, fallPitchConstr, fallingParams, solver)
-    except Exception as error:
-      log('failed to solve final tree fall pose: ' + self.treeIDText(key) + ' error=' + str(error))
-      return (None, 0.0)
+    if fallenSeen or updated:
+      log(
+        'fallen tree state sync: chunks=' + str(chunksChecked) +
+        ' fallen=' + str(fallenSeen) +
+        ' updated=' + str(updated)
+      )
 
   def onTreeFall(self, chunkID, destrIndex, fallYaw, fallPitchConstr, fallSpeed, source):
-    key = self.treeKey(chunkID, destrIndex)
-    if key is None:
-      log(
-        'tree fall event missing tree id: chunkID=' + str(chunkID) +
-        ' destrIndex=' + str(destrIndex)
-      )
-      return False
-
+    key = (int(chunkID), int(destrIndex))
     instances = self.treeColliderByID.get(key)
     if not instances:
-      log(
-        'tree fall event has no collider: ' + self.treeIDText(key) +
-        ' source=' + str(source) +
-        ' yaw=' + str(fallYaw)
-      )
       return False
 
     state = (fallYaw, fallPitchConstr, fallSpeed)
     if self.treeColliderStates.get(key) == state:
       return False
 
-    spaceID = currentDestructiblesSpaceID(log)
-    if isBushDestructible(spaceID, key[0], key[1], log):
+    spaceID = g_destructiblesManager.getSpaceID()
+    if bigworldCompat.checkDestructibleIsBush(spaceID, key[0], key[1]):
       self.treeColliderStates[key] = state
-      log(
-        'tree fall event is bush, collider unchanged: ' + self.treeIDText(key) +
-        ' source=' + str(source)
-      )
       return False
-
-    log(
-      'detected tree fall: ' + self.treeIDText(key) +
-      ' source=' + str(source) +
-      ' yaw=' + str(fallYaw) +
-      ' pitchConstr=' + str(fallPitchConstr) +
-      ' speed=' + str(fallSpeed)
-    )
 
     updated = 0
     finalPitchLog = None
     buryDepthLog = None
+    fallingParams = bigworldCompat.getFallingParams(spaceID, key[0], key[1])
     for instance in instances:
-      try:
-        finalPitch, buryDepth = self.finalTreeFallPose(instance['standingMatrixRows'], spaceID, key, fallPitchConstr)
-        if finalPitch is not None:
-          finalPitchLog = finalPitch
-          buryDepthLog = buryDepth
-        matrixRows = fallenTreeMatrixRows(
-          instance['standingMatrixRows'],
-          fallYaw,
-          fallPitchConstr,
-          finalPitch=finalPitch,
-          buryDepth=buryDepth
-        )
-      except Exception as error:
-        log('failed to compute fallen tree collider transform: ' + self.treeIDText(key) + ' error=' + str(error))
-        continue
-      if self.setColliderTransform(instance, matrixRows, key):
-        updated += 1
-
-    if updated > 0:
-      self.treeColliderStates[key] = state
-      log(
-        'updated fallen tree collider transform: ' + self.treeIDText(key) +
-        ' models=' + str(updated) +
-        ' yaw=' + str(fallYaw) +
-        ' final_pitch=' + str(finalPitchLog) +
-        ' bury_depth=' + str(buryDepthLog)
+      finalPitch, buryDepth = solvedRestingTreePose(
+        instance['standingMatrixRows'],
+        fallPitchConstr,
+        fallingParams,
+        bigworldCompat.solveDestructibleFallPitch
       )
-      return True
+      if finalPitch is not None:
+        finalPitchLog = finalPitch
+        buryDepthLog = buryDepth
+      matrixRows = fallenTreeMatrixRows(
+        instance['standingMatrixRows'],
+        fallYaw,
+        fallPitchConstr,
+        finalPitch=finalPitch,
+        buryDepth=buryDepth
+      )
+      self.setColliderTransform(instance, matrixRows)
+      updated += 1
 
-    log('tree fall event did not update collider: ' + self.treeIDText(key))
-    return False
+    self.treeColliderStates[key] = state
+    log(
+      'updated fallen tree collider transform: ' + self.treeIDText(key) +
+      ' models=' + str(updated) +
+      ' yaw=' + str(fallYaw) +
+      ' final_pitch=' + str(finalPitchLog) +
+      ' bury_depth=' + str(buryDepthLog)
+    )
+    return True
 
-  def setColliderTransform(self, instance, matrixRows, key):
-    model = instance.get('model')
-    if model is None:
-      log('missing collider model for tree: ' + self.treeIDText(key))
-      return False
-
-    oldServo = instance.get('servo')
-    if oldServo is not None and getattr(model, 'delMotor', None) is not None:
-      try:
-        motors = getattr(model, 'motors', None)
-        if motors is None:
-          model.delMotor(oldServo)
-        else:
-          try:
-            hasOldServo = oldServo in motors
-          except Exception:
-            hasOldServo = True
-          if hasOldServo:
-            model.delMotor(oldServo)
-      except Exception as error:
-        log('failed to remove old collider transform motor: ' + self.treeIDText(key) + ' error=' + str(error))
-
+  def setColliderTransform(self, instance, matrixRows):
+    model = instance['model']
+    model.delMotor(instance['servo'])
     matrix = toMatrix(matrixRows)
-    try:
-      servo = BigWorld.Servo(matrix)
-      model.addMotor(servo)
-      instance['servo'] = servo
-    except Exception as error:
-      log('failed to replace collider transform motor: ' + self.treeIDText(key) + ' error=' + str(error))
-      try:
-        model.matrix = matrix
-        instance['servo'] = None
-      except Exception as matrixError:
-        log('failed to assign collider matrix directly: ' + self.treeIDText(key) + ' error=' + str(matrixError))
-        return False
-
+    servo = BigWorld.Servo(matrix)
+    model.addMotor(servo)
+    instance['servo'] = servo
     instance['currentMatrixRows'] = matrixRows
     instance['fallen'] = True
-    return True
 
   @adisp_process
   def displayColliders(self):
     if self.collidersProcessing: return
     if self.collidersVisible:
-      log('collider models already visible: ' + str(len(self.colliders)))
       return
     self.collidersProcessing = True
 
@@ -582,10 +358,7 @@ class WotstatVegetation(CallbackDelayer):
 
     i = 0
     for col in self.colliders:
-      try:
-        player.addModel(col)
-      except Exception as error:
-        log('failed to add collider model: ' + str(error))
+      player.addModel(col)
       i += 1
 
       if i % 100 == 0: yield awaitNextFrame()
@@ -602,21 +375,11 @@ class WotstatVegetation(CallbackDelayer):
       return
     
     player = BigWorld.player()
-    if not player: 
-      self.collidersVisible = False
-      if not self.showColliders:
-        self.clearColliderInstances()
-        log('cleared collider model references without player')
-      return
-
     self.collidersProcessing = True
 
     i = 0
     for col in self.colliders:
-      try:
-        player.delModel(col)
-      except Exception as error:
-        log('failed to remove collider model: ' + str(error))
+      player.delModel(col)
       i += 1
 
       if i % 100 == 0: yield awaitNextFrame()
@@ -628,12 +391,10 @@ class WotstatVegetation(CallbackDelayer):
       self.displayColliders()
     else:
       self.clearColliderInstances()
-      log('cleared collider model references')
 
   @adisp_process
   def refreshColliders(self):
     if self.collidersProcessing:
-      log('collider refresh skipped: colliders are processing')
       return
 
     wasShowing = self.showColliders
@@ -641,23 +402,17 @@ class WotstatVegetation(CallbackDelayer):
 
     player = BigWorld.player()
     oldColliders = list(self.colliders)
-    if oldColliders and self.collidersVisible and player:
+    if oldColliders and self.collidersVisible:
       self.collidersProcessing = True
       removed = 0
       for col in oldColliders:
-        try:
-          player.delModel(col)
-        except Exception as error:
-          log('failed to remove collider model during refresh: ' + str(error))
+        player.delModel(col)
         removed += 1
 
         if removed % 100 == 0: yield awaitNextFrame()
 
       self.collidersVisible = False
       self.collidersProcessing = False
-      log('removed collider models for refresh: ' + str(removed))
-    elif oldColliders and self.collidersVisible:
-      log('collider refresh could not remove visible models: player unavailable')
 
     self.clearColliderInstances()
 
@@ -745,6 +500,6 @@ class WotstatVegetation(CallbackDelayer):
     arenaName = BigWorld.player().arena.arenaType.geometryName
     if arenaName != self.vegetationDataArena: self.loadMapFromSpaceBin(arenaName)
     if arenaName != self.vegetationDataArena: return False
-    self.updateVisibilityFilter(arenaName)
+    self.updateVisibilityFilter()
 
     return True

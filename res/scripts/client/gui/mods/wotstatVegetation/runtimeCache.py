@@ -197,10 +197,6 @@ def validColliderFiles(paths):
   return True
 
 
-def validateMapPayload(payload, arenaName):
-  return mapPayloadInvalidReason(payload, arenaName) is None
-
-
 def mapPayloadInvalidReason(payload, arenaName):
   if not isinstance(payload, dict):
     return 'payload is not an object'
