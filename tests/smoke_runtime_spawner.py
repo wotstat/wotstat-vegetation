@@ -238,6 +238,15 @@ class FakeDestructiblesController(object):
     self.fallenTrees = fallenTrees
 
 
+class FakeFallingParams(object):
+
+  def __init__(self, values):
+    self.values = values
+
+  def get(self, row, col):
+    return self.values.get((row, col), 0.0)
+
+
 def identityMatrixRows(x=0.0, y=0.0, z=0.0):
   return [
     [1.0, 0.0, 0.0, 0.0],
@@ -380,10 +389,22 @@ def main():
   cacheModule.decodeFallenTree = lambda data: data
   cacheModule.DESTR_TYPE_TREE = 0
   sys.modules['DestructiblesCache'] = cacheModule
+  bigworld = sys.modules['BigWorld']
+  bigworld.wg_getFallingParams = lambda _spaceID, _chunkID, _destrIndex: FakeFallingParams({
+    (0, 0): 100.0,
+    (0, 1): 5.0,
+    (0, 3): 0.25,
+    (1, 0): 3.0,
+    (1, 1): 0.2
+  })
+  bigworld.wg_solveDestructibleFallPitch = lambda _weight, _angStiffness, minPitch, _approxPitch: minPitch
 
   app.syncFallenTreeStates()
   check(app.colliderInstances[0]['fallen'], 'already fallen tree synced to fallen orientation')
   check(len(app.colliders[0].motors) == 1, 'sync replaces transform motor')
+  finalRows = app.colliderInstances[0]['currentMatrixRows']
+  check(abs(finalRows[1][0] - math.sin(math.pi / 2.0 - 0.2)) < 0.0001, 'sync uses solved final pitch')
+  check(abs(finalRows[3][1] + 0.25 * math.sin(math.pi / 2.0 - 0.2)) < 0.0001, 'sync applies bury depth')
   check(app.onTreeFall(201, 9, 0.0, math.pi / 2.0, 0.0, 'hidden') is False, 'hidden tree fall does not create collider')
 
   app.onShowColliders(True)

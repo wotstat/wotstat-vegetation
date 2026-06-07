@@ -13,7 +13,7 @@ from .treeFallRuntime import (
   registerTreeFallHandler,
   unregisterTreeFallHandler
 )
-from .treeFallTransform import fallenTreeMatrixRows
+from .treeFallTransform import fallenTreeMatrixRows, solvedRestingTreePose
 from .visibility_mask import buildCurrentVisibilityContext, filterVegetationByVisibility
 from adisp import adisp_process
 from shared_utils import awaitNextFrame
@@ -432,6 +432,29 @@ class WotstatVegetation(CallbackDelayer):
       ' updated=' + str(updated)
     )
 
+  def finalTreeFallPose(self, standingMatrixRows, spaceID, key, fallPitchConstr):
+    if spaceID is None:
+      log('final tree fall pose unavailable, space id missing: ' + self.treeIDText(key))
+      return (None, 0.0)
+
+    try:
+      getFallingParams = getattr(BigWorld, 'wg_getFallingParams', getattr(BigWorld, 'getFallingParams', None))
+      fallingParams = getFallingParams(spaceID, key[0], key[1])
+    except Exception as error:
+      log('failed to read tree falling params: ' + self.treeIDText(key) + ' error=' + str(error))
+      return (None, 0.0)
+
+    solver = getattr(BigWorld, 'wg_solveDestructibleFallPitch', getattr(BigWorld, 'solveDestructibleFallPitch', None))
+    if solver is None or not callable(solver):
+      log('final tree fall pitch solver unavailable: ' + self.treeIDText(key))
+      return (None, 0.0)
+
+    try:
+      return solvedRestingTreePose(standingMatrixRows, fallPitchConstr, fallingParams, solver)
+    except Exception as error:
+      log('failed to solve final tree fall pose: ' + self.treeIDText(key) + ' error=' + str(error))
+      return (None, 0.0)
+
   def onTreeFall(self, chunkID, destrIndex, fallYaw, fallPitchConstr, fallSpeed, source):
     key = self.treeKey(chunkID, destrIndex)
     if key is None:
@@ -472,9 +495,21 @@ class WotstatVegetation(CallbackDelayer):
     )
 
     updated = 0
+    finalPitchLog = None
+    buryDepthLog = None
     for instance in instances:
       try:
-        matrixRows = fallenTreeMatrixRows(instance['standingMatrixRows'], fallYaw, fallPitchConstr)
+        finalPitch, buryDepth = self.finalTreeFallPose(instance['standingMatrixRows'], spaceID, key, fallPitchConstr)
+        if finalPitch is not None:
+          finalPitchLog = finalPitch
+          buryDepthLog = buryDepth
+        matrixRows = fallenTreeMatrixRows(
+          instance['standingMatrixRows'],
+          fallYaw,
+          fallPitchConstr,
+          finalPitch=finalPitch,
+          buryDepth=buryDepth
+        )
       except Exception as error:
         log('failed to compute fallen tree collider transform: ' + self.treeIDText(key) + ' error=' + str(error))
         continue
@@ -486,7 +521,9 @@ class WotstatVegetation(CallbackDelayer):
       log(
         'updated fallen tree collider transform: ' + self.treeIDText(key) +
         ' models=' + str(updated) +
-        ' yaw=' + str(fallYaw)
+        ' yaw=' + str(fallYaw) +
+        ' final_pitch=' + str(finalPitchLog) +
+        ' bury_depth=' + str(buryDepthLog)
       )
       return True
 

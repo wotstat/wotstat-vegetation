@@ -170,7 +170,7 @@ def _engineSpaceVisibilityMask(player, spaceID, logger=None):
 
   try:
     import BigWorld
-    getter = getattr(BigWorld, 'wg_getSpaceItemsVisibilityMask', None)
+    getter = getattr(BigWorld, 'wg_getSpaceItemsVisibilityMask', getattr(BigWorld, 'getSpaceItemsVisibilityMask', None))
     if getter is None or not callable(getter):
       return None
     rawMask = _toUInt32(getter(spaceID))

@@ -1,5 +1,7 @@
 import math
 
+GRAVITY = 9.81
+
 
 def isFinite(value):
   if hasattr(math, 'isfinite'):
@@ -7,16 +9,46 @@ def isFinite(value):
   return value == value and value != float('inf') and value != float('-inf')
 
 
-def fallenTreePitch(fallPitchConstr):
+def fallenTreePitch(fallPitchConstr, fallback=None, allowZero=False):
+  if fallback is None:
+    fallback = math.pi / 2.0
   try:
     pitch = float(fallPitchConstr)
   except (TypeError, ValueError):
-    pitch = math.pi / 2.0
+    return fallback
 
-  if not isFinite(pitch) or pitch <= 0.0 or pitch > math.pi:
-    return math.pi / 2.0
+  if not isFinite(pitch) or pitch > math.pi:
+    return fallback
+  if pitch < 0.0 or pitch == 0.0 and not allowZero:
+    return fallback
 
   return pitch
+
+
+def matrixYScale(matrixRows):
+  _validateMatrixRows(matrixRows)
+  y = matrixRows[1]
+  return math.sqrt(y[0] * y[0] + y[1] * y[1] + y[2] * y[2])
+
+
+def solvedRestingTreePose(standingMatrixRows, fallPitchConstr, fallingParams, solvePitch):
+  pitchConstr = fallenTreePitch(fallPitchConstr)
+  scale = matrixYScale(standingMatrixRows)
+  mass = _fallingParam(fallingParams, 0, 0, 0.0)
+  height = _fallingParam(fallingParams, 0, 1, 0.0)
+  buryDepth = _fallingParam(fallingParams, 0, 3, 0.0)
+  springStiffness = _fallingParam(fallingParams, 1, 0, 0.0)
+  springAngle = _fallingParam(fallingParams, 1, 1, 0.0)
+
+  heightScaled = height * scale
+  massScaled = mass * scale * scale * scale
+  stiffnessScaled = springStiffness * scale * scale
+  weight = GRAVITY * massScaled
+  angStiffness = 0.5 * heightScaled * stiffnessScaled
+  approxPitch = pitchConstr - 0.5 * springAngle
+  finalPitch = solvePitch(weight, angStiffness, pitchConstr - springAngle, approxPitch)
+  finalPitch = fallenTreePitch(finalPitch, pitchConstr, allowZero=True)
+  return (finalPitch, buryDepth * scale)
 
 
 def fallenTreeMatrixRows(standingMatrixRows, fallYaw, fallPitchConstr=None, finalPitch=None, buryDepth=0.0):
@@ -31,7 +63,7 @@ def fallenTreeMatrixRows(standingMatrixRows, fallYaw, fallPitchConstr=None, fina
   if finalPitch is None:
     pitch = fallenTreePitch(fallPitchConstr)
   else:
-    pitch = fallenTreePitch(finalPitch)
+    pitch = fallenTreePitch(finalPitch, fallenTreePitch(fallPitchConstr), allowZero=True)
 
   try:
     buryDepth = float(buryDepth)
@@ -73,6 +105,23 @@ def _validateMatrixRows(matrixRows):
         raise ValueError('matrix contains a non-number value: ' + str(value))
       if not isFinite(number):
         raise ValueError('matrix contains a non-finite value: ' + str(value))
+
+
+def _fallingParam(params, row, col, default):
+  try:
+    value = params.get(row, col)
+  except Exception:
+    try:
+      value = params[row][col]
+    except Exception:
+      return default
+  try:
+    value = float(value)
+  except (TypeError, ValueError):
+    return default
+  if not isFinite(value):
+    return default
+  return value
 
 
 def _multiplyRows(a, b):
