@@ -19,6 +19,10 @@ from .wotModelExporter import exportColliderModel
 from .logger import log as defaultLog
 
 
+COLLIDER_CACHE_STATUS_NO_COLLIDER = 'no_collider'
+NO_COLLIDER_REASON = 'no COLLISION mesh found'
+
+
 class VegetationColliderCache(object):
 
   def __init__(self, preferencesPath, version, logger=None):
@@ -40,6 +44,16 @@ class VegetationColliderCache(object):
     density = densityMetadata['camouflageDensity']
     paths = colliderModelPaths(self.preferencesPath, self.version, normalizedAsset, density)
     texture = textureResourceForDensity(density)
+
+    if _noColliderCacheHit(paths, normalizedAsset, texture, self.logger):
+      self.logger(
+        'collider cache hit: asset=' + normalizedAsset +
+        ' status=' + COLLIDER_CACHE_STATUS_NO_COLLIDER +
+        ' camouflage_density=' + str(density) +
+        ' texture=' + texture
+      )
+      self._modelPathByAsset[assetKey] = None
+      return None
 
     if _validColliderCache(paths, normalizedAsset, texture, self.logger):
       self.logger(
@@ -65,6 +79,8 @@ class VegetationColliderCache(object):
     try:
       modelPath = self._generateCollider(normalizedAsset, densityMetadata, texture, paths)
     except Exception as error:
+      if _isNoColliderError(error):
+        _writeNoColliderCache(paths, normalizedAsset, densityMetadata, texture, str(error), self.logger)
       self.logger('failed to generate collider for ' + normalizedAsset + ': ' + str(error))
       self._modelPathByAsset[assetKey] = None
       return None
@@ -87,7 +103,7 @@ class VegetationColliderCache(object):
     geometry = parseSrtBinary(data, assetPath)
     meshes = geometry.collisionMeshes()
     if not meshes:
-      raise ValueError('no COLLISION mesh found')
+      raise ValueError(NO_COLLIDER_REASON)
 
     meshes = self._flipNormals(meshes)
 
@@ -155,3 +171,46 @@ def _validColliderCache(paths, assetPath, texture, logger):
     return False
 
   return True
+
+
+def _noColliderCacheHit(paths, assetPath, texture, logger):
+  if not os.path.isfile(paths['meta']):
+    return False
+
+  try:
+    meta = readJson(paths['meta'])
+  except Exception:
+    return False
+
+  if meta.get('status') != COLLIDER_CACHE_STATUS_NO_COLLIDER:
+    return False
+  if meta.get('asset') != assetPath or meta.get('texture') != texture:
+    logger('no-collider cache metadata mismatch, regenerating: ' + paths['meta'])
+    return False
+
+  return True
+
+
+def _writeNoColliderCache(paths, assetPath, densityMetadata, texture, reason, logger):
+  metadata = {
+    'status': COLLIDER_CACHE_STATUS_NO_COLLIDER,
+    'asset': assetPath,
+    'density': densityMetadata['camouflageDensity'],
+    'destructibles_density': densityMetadata['destructiblesDensity'],
+    'vegetation_list': densityMetadata['vegetationList'],
+    'camouflage_affects': densityMetadata['camouflageAffects'],
+    'camouflage_density': densityMetadata['camouflageDensity'],
+    'camouflage_reason': densityMetadata['camouflageReason'],
+    'texture': texture,
+    'reason': reason
+  }
+  try:
+    ensureDir(paths['directory'])
+    writeJson(paths['meta'], metadata)
+    logger('wrote no-collider cache: asset=' + assetPath + ' meta=' + paths['meta'])
+  except Exception as writeError:
+    logger('failed to write no-collider cache ' + paths['meta'] + ': ' + str(writeError))
+
+
+def _isNoColliderError(error):
+  return str(error) == NO_COLLIDER_REASON

@@ -147,9 +147,17 @@ class WotstatVegetation(CallbackDelayer):
     self.vegetationDataArena = ''
     self.visibilityContext = None
     self.visibilityFilterApplied = False
-    self.checkboxShowColliders.isChecked = False
-    self.checkboxShowPositions.isChecked = False
+    self.setCheckboxState('checkboxShowColliders', False)
+    self.setCheckboxState('checkboxShowPositions', False)
     log('arena runtime state reset complete')
+
+  def setCheckboxState(self, attrName, isChecked):
+    try:
+      checkbox = getattr(self, attrName, None)
+      if checkbox is not None:
+        checkbox.isChecked = isChecked
+    except Exception as error:
+      log('failed to update checkbox state ' + str(attrName) + ': ' + str(error))
 
   def preferencesPath(self):
     getters = (

@@ -29,6 +29,8 @@ from wotstatVegetation.runtimeCache import (  # noqa: E402
 )
 from wotstatVegetation.wotModelExporter import exportColliderModel  # noqa: E402
 from wotstatVegetation.spaceBinUnpacker import _chunkIdForMatrix  # noqa: E402
+import wotstatVegetation.colliderCache as colliderCacheModule  # noqa: E402
+from wotstatVegetation.colliderCache import VegetationColliderCache  # noqa: E402
 from wotstatVegetation.densityCache import (  # noqa: E402
   _loadFromDataSection,
   _loadFromText,
@@ -68,6 +70,24 @@ class FakeSection(object):
       if childName == name:
         return child
     raise KeyError(name)
+
+
+class FakeDensityMetadata(object):
+
+  def metadataFor(self, _asset):
+    return {
+      'camouflageDensity': None,
+      'destructiblesDensity': None,
+      'vegetationList': 'unlisted',
+      'camouflageAffects': None,
+      'camouflageReason': 'not_enough_metadata'
+    }
+
+
+class FakeSrtGeometryWithoutCollision(object):
+
+  def collisionMeshes(self):
+    return []
 
 
 def main():
@@ -226,6 +246,39 @@ def main():
     check(os.path.isfile(exportBase.replace('.model', '.primitives')), 'exported primitives file')
     with open(exportBase.replace('.model', '.visual'), 'r') as handle:
       check('mods/wotstat-vegetation/red.dds' in handle.read(), 'visual texture reference')
+
+    originalReadResourceBinary = colliderCacheModule._readResourceBinary
+    originalParseSrtBinary = colliderCacheModule.parseSrtBinary
+    parseCalls = {'count': 0}
+
+    def fakeReadResourceBinary(_assetPath):
+      return b'srt'
+
+    def fakeParseSrtBinary(_data, _assetPath):
+      parseCalls['count'] += 1
+      return FakeSrtGeometryWithoutCollision()
+
+    colliderCacheModule._readResourceBinary = fakeReadResourceBinary
+    colliderCacheModule.parseSrtBinary = fakeParseSrtBinary
+    try:
+      noColliderCache = VegetationColliderCache(tempdir, '1.2.3')
+      noColliderCache.densities = FakeDensityMetadata()
+      noColliderAsset = 'vegetation/Grass/Moss/Moss_lod0.srt'
+      check(noColliderCache.ensureColliderModel(noColliderAsset) is None, 'no-collider asset returns no model')
+      check(parseCalls['count'] == 1, 'no-collider asset parsed first time')
+
+      noColliderMeta = colliderModelPaths(tempdir, '1.2.3', noColliderAsset, None)['meta']
+      noColliderPayload = readJson(noColliderMeta)
+      check(noColliderPayload['status'] == 'no_collider', 'no-collider cache status stored')
+      check(noColliderPayload['asset'] == noColliderAsset, 'no-collider asset stored')
+
+      noColliderCache2 = VegetationColliderCache(tempdir, '1.2.3')
+      noColliderCache2.densities = FakeDensityMetadata()
+      check(noColliderCache2.ensureColliderModel(noColliderAsset) is None, 'no-collider cache returns no model')
+      check(parseCalls['count'] == 1, 'no-collider cache hit skips reparsing')
+    finally:
+      colliderCacheModule._readResourceBinary = originalReadResourceBinary
+      colliderCacheModule.parseSrtBinary = originalParseSrtBinary
   finally:
     shutil.rmtree(tempdir)
 
