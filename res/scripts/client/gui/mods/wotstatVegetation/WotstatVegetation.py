@@ -21,7 +21,6 @@ from .utils.visibilityMask import currentVisibilityMask, filterVegetationByVisib
 from .utils.Restriction import Restriction
 from .core.colliderCache import VegetationColliderCache
 from .core.mapCache import loadMapVegetation
-from .core.runtimeCache import densityVariant
 from .core.treeFallRuntime import registerTreeFallHandler, unregisterTreeFallHandler
 from .core.treeFallTransform import fallenTreeMatrixRows, solvedRestingTreePose
 
@@ -176,34 +175,33 @@ class WotstatVegetation(CallbackDelayer):
     self.collidersVisibilityMask = self.activeVisibilityMask
     self.collidersOnlyCamouflable = self.onlyCamouflable
     colliderCache = self.getColliderCache()
-    modelPathByAsset = {}
-    densityMetadataByAsset = {}
-    failedAssets = {}
-    skippedRed = 0
+    modelPathByVariant = {}
+    failedVariants = {}
+    skippedNonCamouflaging = 0
 
     vegetation = self.visibleVegetationData if self.visibilityFilterApplied else self.vegetationData
     for v in vegetation:
       asset = v['asset']
       assetKey = asset.lower()
+      destrIndex = v.get('destrIndex')
+      densityMetadata = colliderCache.densities.metadataFor(asset, destrIndex)
+      modelVariantKey = assetKey + '|density=' + str(densityMetadata.get('camouflageDensity'))
 
-      if assetKey in failedAssets:
+      if modelVariantKey in failedVariants:
         continue
 
-      if assetKey not in densityMetadataByAsset:
-        densityMetadataByAsset[assetKey] = colliderCache.densities.metadataFor(asset)
-      densityMetadata = densityMetadataByAsset[assetKey]
-      if self.onlyCamouflable and densityVariant(densityMetadata.get('camouflageDensity')) == 'red':
-        skippedRed += 1
+      if self.onlyCamouflable and not densityMetadata.get('camouflageAffects'):
+        skippedNonCamouflaging += 1
         continue
 
-      if assetKey not in modelPathByAsset:
-        modelPath = colliderCache.ensureColliderModel(asset)
+      if modelVariantKey not in modelPathByVariant:
+        modelPath = colliderCache.ensureColliderModel(asset, densityMetadata)
         if not modelPath:
-          failedAssets[assetKey] = True
+          failedVariants[modelVariantKey] = True
           continue
-        modelPathByAsset[assetKey] = modelPath
+        modelPathByVariant[modelVariantKey] = modelPath
       else:
-        modelPath = modelPathByAsset[assetKey]
+        modelPath = modelPathByVariant[modelVariantKey]
       
       model = BigWorld.Model(modelPath)
       model.castsShadow = False
@@ -220,7 +218,9 @@ class WotstatVegetation(CallbackDelayer):
         'standingMatrixRows': matrixRows,
         'currentMatrixRows': matrixRows,
         'chunkID': v.get('chunkID'),
-        'destrIndex': v.get('destrIndex'),
+        'destrIndex': destrIndex,
+        'camouflageAffects': densityMetadata.get('camouflageAffects'),
+        'camouflageDensity': densityMetadata.get('camouflageDensity'),
         'fallen': False
       }
       self.colliderInstances.append(instance)
@@ -228,9 +228,9 @@ class WotstatVegetation(CallbackDelayer):
 
     log(
       'prepared collider instances: instances=' + str(len(self.colliders)) +
-      ' unique_models=' + str(len(modelPathByAsset)) +
-      ' failed_assets=' + str(len(failedAssets)) +
-      ' skipped_red=' + str(skippedRed) +
+      ' unique_models=' + str(len(modelPathByVariant)) +
+      ' failed_variants=' + str(len(failedVariants)) +
+      ' skipped_non_camouflaging=' + str(skippedNonCamouflaging) +
       ' only_camuflagable=' + str(self.onlyCamouflable) +
       ' tree_ids=' + str(len(self.treeColliderByID))
     )

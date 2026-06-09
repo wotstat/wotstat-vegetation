@@ -6,8 +6,8 @@ import re
 
 MOD_CACHE_DIR = 'wotstat-vegetation'
 DEFAULT_CACHE_VERSION = 'runtime-v1'
-EXPORT_FORMAT_VERSION = 'wot-collider-export-v1'
-MAP_CACHE_FORMAT_VERSION = 2
+EXPORT_FORMAT_VERSION = 'wot-collider-export-v2'
+MAP_CACHE_FORMAT_VERSION = 3
 
 GREEN_TEXTURE = 'mods/wotstat-vegetation/green.dds'
 YELLOW_TEXTURE = 'mods/wotstat-vegetation/yellow.dds'
@@ -100,7 +100,8 @@ def colliderCacheKey(assetPath, density):
   variant = densityVariant(density)
   material = textureResourceForDensity(density)
   digest = stableDigest(
-    normalized + '|density=' + variant + '|texture=' + material +
+    normalized + '|density=' + str(density) + '|variant=' + variant +
+    '|texture=' + material +
     '|export=' + EXPORT_FORMAT_VERSION,
     20
   )

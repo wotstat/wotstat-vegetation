@@ -2,7 +2,7 @@
 
 # WotStat Vegetation
 
-A mod for displaying vegetation camouflage colliders used in the spotting system. It allows you to study their placement, shape, and behavior, investigate "holes" in bushes, and understand unexpected spotting situations.
+A mod for displaying vegetation camouflage collisions used in the spotting system. It allows you to study their placement, shape, and behavior, investigate "holes" in bushes, and understand unexpected spotting situations.
 
 > [!NOTE]
 > The mod works only in `Replays` and `Training Battles`. In competitive modes — Random, Clan, and Team Battles — the mod will not work.
@@ -16,22 +16,22 @@ A mod for displaying vegetation camouflage colliders used in the spotting system
 
 ## Usage
 
-* `F2` - Show/Hide vegetation colliders.
-* `F3` - Show/Hide only camouflage colliders.
+* `F2` - Show/Hide vegetation collisions.
+* `F3` - Show/Hide only camouflage collisions.
 
-### Collider Color Meaning
+### Collision Color Meaning
 
-The collider color depends on its camouflage properties:
+The collision color depends on its camouflage properties:
 
 * `Green` - adds 50% camouflage.
 * `Yellow` - adds 25% camouflage; usually trees without foliage.
-* `Red` - the collider does not provide camouflage, but still exists in the game; usually small trees or bushes that belong to the grass category.
+* `Red` - the collision does not provide camouflage but exists in the game; usually grass and trees far beyond the map boundaries. The same tree can be either camouflaging or not, this parameter is determined individually for each instance.
 
 ### Integration with wotstat-debug-utils
 
 The mod supports integration with [wotstat-debug-utils](https://github.com/wotstat/wotstat-debug-utils).
 
-Open the mod menu (`F2`) and find the `Vegetation` section. There you can control collider visibility, as well as display coordinate markers for all vegetation objects with their names within a 30-meter radius of the camera.
+Open the mod menu (`F2`) and find the `Vegetation` section. There you can control collision visibility, as well as display coordinate markers for all vegetation objects with their names within a 30-meter radius of the camera.
 
 ![Settings window](.github/assets/debug-utils-integration-en.png)
 

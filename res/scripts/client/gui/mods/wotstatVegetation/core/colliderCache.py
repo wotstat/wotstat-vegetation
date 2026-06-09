@@ -26,25 +26,23 @@ class VegetationColliderCache(object):
     self.preferencesPath = preferencesPath
     self.version = version
     self.densities = VegetationDensityCache()
-    self._modelPathByAsset = {}
+    self._modelPathByVariant = {}
 
-  def ensureColliderModel(self, assetPath):
-    assetKey = assetPath.lower()
-
-    if assetKey in self._modelPathByAsset:
-      return self._modelPathByAsset[assetKey]
-
-    densityMetadata = self.densities.metadataFor(assetPath)
+  def ensureColliderModel(self, assetPath, densityMetadata):
     density = densityMetadata['camouflageDensity']
     paths = colliderModelPaths(self.preferencesPath, self.version, assetPath, density)
     texture = textureResourceForDensity(density)
+    modelKey = paths['key']
+
+    if modelKey in self._modelPathByVariant:
+      return self._modelPathByVariant[modelKey]
 
     if _noColliderCacheHit(paths, assetPath, texture):
-      self._modelPathByAsset[assetKey] = None
+      self._modelPathByVariant[modelKey] = None
       return None
 
     if _validColliderCache(paths, assetPath, texture):
-      self._modelPathByAsset[assetKey] = paths['model']
+      self._modelPathByVariant[modelKey] = paths['model']
       return paths['model']
 
     try:
@@ -53,10 +51,10 @@ class VegetationColliderCache(object):
       if str(error) != NO_COLLIDER_REASON:
         raise
       _writeNoColliderCache(paths, assetPath, densityMetadata, texture, str(error))
-      self._modelPathByAsset[assetKey] = None
+      self._modelPathByVariant[modelKey] = None
       return None
 
-    self._modelPathByAsset[assetKey] = modelPath
+    self._modelPathByVariant[modelKey] = modelPath
     return modelPath
 
   def _generateCollider(self, assetPath, densityMetadata, texture, paths):
@@ -76,7 +74,6 @@ class VegetationColliderCache(object):
       'asset': assetPath,
       'density': densityMetadata['camouflageDensity'],
       'destructibles_density': densityMetadata['destructiblesDensity'],
-      'vegetation_list': densityMetadata['vegetationList'],
       'camouflage_affects': densityMetadata['camouflageAffects'],
       'camouflage_density': densityMetadata['camouflageDensity'],
       'camouflage_reason': densityMetadata['camouflageReason'],
@@ -145,7 +142,6 @@ def _writeNoColliderCache(paths, assetPath, densityMetadata, texture, reason):
     'asset': assetPath,
     'density': densityMetadata['camouflageDensity'],
     'destructibles_density': densityMetadata['destructiblesDensity'],
-    'vegetation_list': densityMetadata['vegetationList'],
     'camouflage_affects': densityMetadata['camouflageAffects'],
     'camouflage_density': densityMetadata['camouflageDensity'],
     'camouflage_reason': densityMetadata['camouflageReason'],

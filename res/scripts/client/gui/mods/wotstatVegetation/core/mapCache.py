@@ -46,9 +46,36 @@ def loadMapVegetation(arenaName, preferencesPath, version):
 
 def _readCachedMap(cachePath, arenaName):
   try:
-    return readJson(cachePath)
+    payload = readJson(cachePath)
   except IOError:
     return None
   except Exception as error:
     log('map cache corrupt, regenerating ' + cachePath + ': ' + str(error))
     return None
+
+  if not isinstance(payload, dict):
+    log('map cache payload invalid, regenerating ' + cachePath)
+    return None
+
+  if payload.get('mapCacheFormatVersion') != MAP_CACHE_FORMAT_VERSION:
+    log('map cache format changed, regenerating ' + cachePath)
+    return None
+
+  if payload.get('arena') != arenaName:
+    log('map cache arena mismatch, regenerating ' + cachePath)
+    return None
+
+  vegetation = payload.get('vegetation')
+  if not isinstance(vegetation, list):
+    log('map cache vegetation payload invalid, regenerating ' + cachePath)
+    return None
+
+  for entry in vegetation:
+    if not isinstance(entry, dict):
+      log('map cache vegetation entry invalid, regenerating ' + cachePath)
+      return None
+    if 'destrIndex' not in entry:
+      log('map cache missing destrIndex, regenerating ' + cachePath)
+      return None
+
+  return payload

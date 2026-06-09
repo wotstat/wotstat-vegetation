@@ -6,9 +6,9 @@ from Singleton import Singleton
 EN = {
   'title': 'Vegetation',
   'showPositions': 'Show positions (30m)',
-  'showColliders': 'Show colliders',
+  'showColliders': 'Show collisions',
   'onlyCamouflaging': '  Only camouflaging',
-  'message.showColliders': 'Show colliders: ',
+  'message.showColliders': 'Show collisions: ',
   'message.onlyCamouflaging': 'Only camouflaging: ',
   'message.True': 'On',
   'message.False': 'Off',
@@ -18,9 +18,9 @@ EN = {
 RU = {
   'title': 'Растительность',
   'showPositions': 'Отображать позиции (30м)',
-  'showColliders': 'Отображать коллайдеры',
+  'showColliders': 'Отображать колижены',
   'onlyCamouflaging': '  Только маскирующие',
-  'message.showColliders': 'Отображение коллайдеров: ',
+  'message.showColliders': 'Отображение колиженов: ',
   'message.onlyCamouflaging': 'Только маскирующие: ',
   'message.True': 'Вкл',
   'message.False': 'Выкл',
