@@ -1,5 +1,13 @@
 ### | [RU](./README.md) | EN |
 
+> [!IMPORTANT]
+> At present, the mod is **definitely allowed on Lesta**. It is being monitored, but you will not be banned for using it.
+> ---
+> On WG, the mod's status is unclear and there is no definitive answer. To avoid any risk, it is best to use it only in `Replays`. There is no one to ban for watching a replay.
+> ---
+
+If anything changes, I will update this page, and the corresponding restriction will appear on the [game's list of prohibited mods](https://tanki.su/ru/content/guide/ban/nonusefulmods/). The mod does not change vegetation transparency; it adds newly generated objects that did not previously exist. Therefore, it does not fall under those rules.
+
 # WotStat Vegetation
 
 A mod for displaying vegetation camouflage collisions used in the spotting system. It allows you to study their placement, shape, and behavior, investigate "holes" in bushes, and understand unexpected spotting situations.
