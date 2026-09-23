@@ -17,6 +17,8 @@ A mod for displaying vegetation camouflage collisions used in the spotting syste
 
 ![Demo](.github/assets/demo-1.jpeg)
 
+> At the game developers request, I closed the source code for this mod to reduce the risk of it being used for unintended purposes. The mod itself is compiled into a secure binary `pyd` file, which is much harder to analyze than a regular `Python` mod.
+
 ## Installation
 
 1. Download the mod file [`wotstat.vegetation_1.0.0.wotmod`](https://github.com/wotstat/wotstat-vegetation/releases/latest).
