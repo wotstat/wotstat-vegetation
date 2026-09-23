@@ -27,6 +27,12 @@ The collision color depends on its camouflage properties:
 * `Yellow` - adds 25% camouflage; usually trees without foliage.
 * `Red` - the collision does not provide camouflage but exists in the game; usually grass and trees far beyond the map boundaries. The same tree can be either camouflaging or not, this parameter is determined individually for each instance.
 
+### Local Map Viewing
+
+The mod is compatible with [WotStat Map Viewer](https://github.com/wotstat/wotstat-map-viewer) for viewing maps locally. Simply install the mod, and its settings will appear in the viewer options.
+
+![Demo](.github/assets/map-viewer-integration.png)
+
 ## Examples
 
 ![Demo](.github/assets/demo-2.jpeg)
